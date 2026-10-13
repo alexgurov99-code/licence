@@ -1,5 +1,5 @@
 import { CONFIG, type RulesParams } from '../config';
-import type { Maneuver, Side } from '../route/route';
+import type { Maneuver, Route, Side } from '../route/route';
 import type { RulesState } from './engine';
 import { mirrorChecked } from './observation';
 import { exitZoneOf } from './signals';
@@ -7,6 +7,10 @@ import type { RulesSnapshot } from './types';
 
 // Learner mode: the steps the next manoeuvre needs, in order, and which are done, following the
 // same rules the engine checks. Pure logic; the UI (ui/coachPanel.ts) puts it into words and keys.
+//
+// The steps only show once it is time for them: close to where the signal should go on, and past
+// any bend of the road before the manoeuvre. Until then just the manoeuvre is named (or the bend
+// ahead), and a look in the mirror only ticks the mirror step if it comes after the steps show.
 
 export type CoachStepKind =
   | 'belt'
@@ -38,12 +42,33 @@ export interface CoachStep {
 
 export type CoachWarning = { kind: 'speeding'; limit: number } | { kind: 'keepLeft' };
 
+/**
+ * steps: time to do the steps; ahead: the manoeuvre is still a way off (no steps yet);
+ * bend: a bend of the road comes first, just follow it (no signal).
+ */
+export type CoachPhase = 'steps' | 'ahead' | 'bend';
+
 export interface Coaching {
   /** The manoeuvre the steps are for, and how far away it is (null once under way). */
   maneuver: Maneuver;
   distance: number | null;
+  phase: CoachPhase;
+  /** Phase 'bend': which way the road goes. */
+  bend: Side | null;
+  /** Empty until the phase is 'steps', except an indicator left on that should be cancelled. */
   steps: CoachStep[];
   warnings: CoachWarning[];
+}
+
+/** Remembers when the steps of the current manoeuvre first showed. */
+export interface CoachState {
+  route: Route | null;
+  maneuver: number;
+  stepsSince: number | null;
+}
+
+export function createCoachState(): CoachState {
+  return { route: null, maneuver: -1, stepsSince: null };
 }
 
 export interface CoachOptions {
@@ -51,12 +76,15 @@ export interface CoachOptions {
   minSignalSeconds: number;
   /** Steps start to light up this far before where the signal should go on. */
   aheadDistance: number;
+  /** A bend of the road closer than this is named instead of the manoeuvre after it. */
+  bendDistance: number;
 }
 
 const DEFAULT_OPTIONS: CoachOptions = {
   params: CONFIG.rules,
   minSignalSeconds: CONFIG.route.minSignalSeconds,
   aheadDistance: CONFIG.ui.coachAheadDistance,
+  bendDistance: CONFIG.minimap.bendAnnounceDistance,
 };
 
 interface Draft {
@@ -66,27 +94,46 @@ interface Draft {
   side?: Side;
   seconds?: number;
   needSeconds?: number;
+  /** An indicator left on from the previous manoeuvre: shown even before it is time for the steps. */
+  leftover?: boolean;
 }
 
-export function coach(snap: RulesSnapshot, rules: RulesState, options: CoachOptions = DEFAULT_OPTIONS): Coaching | null {
-  if (snap.offRoute) return null;
+export function coach(
+  snap: RulesSnapshot,
+  rules: RulesState,
+  state: CoachState,
+  options: CoachOptions = DEFAULT_OPTIONS,
+): { coaching: Coaching | null; state: CoachState } {
+  if (snap.offRoute) return { coaching: null, state };
   const { params } = options;
   const { route, time } = snap;
   const s = rules.signals;
   const last = route.maneuvers[route.maneuvers.length - 1];
   const m = snap.arrived ? last : route.maneuvers[snap.next];
-  if (!m) return null;
+  if (!m) return { coaching: null, state };
+
+  // Is it time for the steps? Close to where the signal should go on, and past any bend before the manoeuvre.
+  const firstZone = route.zones.find((z) => z.maneuver === m.index && (z.kind === 'signal' || z.kind === 'stopLine' || z.kind === 'giveWayLine'));
+  const from = Math.min(firstZone?.from ?? m.start, m.start) - options.aheadDistance;
+  const bendAhead = snap.nextStarted ? undefined : route.bends.find((b) => b.to > snap.progress && b.to <= m.start);
+  const inTime = m.kind === 'pullOut' || snap.arrived || snap.nextStarted || (snap.progress >= from && !bendAhead);
+  const phase: CoachPhase = inTime ? 'steps' : bendAhead && bendAhead.from - snap.progress < options.bendDistance ? 'bend' : 'ahead';
+  let next = state.route === route && state.maneuver === m.index ? state : { route, maneuver: m.index, stepsSince: null };
+  if (inTime && next.stepsSince === null) next = { ...next, stepsSince: m.kind === 'pullOut' ? -Infinity : time };
+  const stepsSince = next.stepsSince ?? Infinity;
 
   const drafts: Draft[] = [];
   const previous = route.maneuvers[m.index - 1];
   // An indicator left on from the previous manoeuvre, not wanted for this one.
   if (!snap.arrived && snap.indicator && snap.indicator !== m.signal && previous && s.sinceProgress < previous.end) {
-    drafts.push({ kind: 'cancelSignal', done: false });
+    drafts.push({ kind: 'cancelSignal', done: false, leftover: true });
   }
 
   const mirrorStep = (side: Side): Draft => {
     const before = s.mirrorBeforeSignal[m.index];
-    const recent = mirrorChecked(snap.lastChecked, side, time - params.observation.mirrorMaxAgeSeconds);
+    // Only a look since the steps showed: an early one (e.g. before a bend) does not tick it.
+    const since = Math.max(stepsSince, time - params.observation.mirrorMaxAgeSeconds);
+    const recent = mirrorChecked(snap.lastChecked, side, since);
     return { kind: 'mirror', side, done: before === true || (snap.indicator !== side && recent), missed: before === false };
   };
   const signalStep = (side: Side): Draft => {
@@ -145,13 +192,10 @@ export function coach(snap: RulesSnapshot, rules: RulesState, options: CoachOpti
     if (m.signal || exit) drafts.push({ kind: 'cancelSignal', done: false });
   }
 
-  // Steps light up once the car is close: from a little before the signal should go on.
-  const firstZone = route.zones.find((z) => z.maneuver === m.index && (z.kind === 'signal' || z.kind === 'stopLine' || z.kind === 'giveWayLine'));
-  const from = Math.min(firstZone?.from ?? m.start, m.start) - options.aheadDistance;
-  const active = m.kind === 'pullOut' || snap.arrived || snap.nextStarted || snap.progress >= from || drafts[0]?.kind === 'cancelSignal';
-
-  let nowGiven = !active;
-  const steps: CoachStep[] = drafts.map((d) => {
+  // Before it is time, only an indicator left on from the previous manoeuvre is worth a step.
+  const shown = inTime ? drafts : drafts.filter((d) => d.leftover);
+  let nowGiven = false;
+  const steps: CoachStep[] = shown.map((d) => {
     let state: CoachStepState;
     if (d.done) state = 'done';
     else if (d.missed) state = 'missed';
@@ -173,5 +217,5 @@ export function coach(snap: RulesSnapshot, rules: RulesState, options: CoachOpti
 
   const target = m.kind === 'pullOver' ? m.end : m.start;
   const distance = snap.nextStarted || snap.arrived || m.kind === 'pullOut' ? null : Math.max(0, target - snap.progress);
-  return { maneuver: m, distance, steps, warnings };
+  return { coaching: { maneuver: m, distance, phase, bend: phase === 'bend' ? (bendAhead?.side ?? null) : null, steps, warnings }, state: next };
 }

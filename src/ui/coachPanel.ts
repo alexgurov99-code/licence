@@ -11,6 +11,8 @@ import type { CoachStep, CoachStepState, CoachWarning, Coaching } from '../rules
 
 export interface CoachText {
   title: string;
+  /** No steps yet (the manoeuvre is a way off or a bend comes first): shown small and dim. */
+  quiet: boolean;
   steps: { text: string; state: CoachStepState }[];
   warnings: string[];
 }
@@ -20,8 +22,16 @@ const MARKS: Record<CoachStepState, string> = { done: '✓', now: '▶', todo: '
 export function coachText(coaching: Coaching): CoachText {
   const m = coaching.maneuver;
   const away = coaching.distance !== null && coaching.distance > CONFIG.minimap.nowDistance ? ` · ${Math.round(coaching.distance / 10) * 10} m` : '';
+  const named = `${maneuverTitle(m, coaching)}${away}`;
+  const title =
+    coaching.phase === 'bend'
+      ? `The road bends ${coaching.bend ?? ''}: just follow it, no signal. Then: ${named}`
+      : coaching.phase === 'ahead'
+        ? `Next: ${named}`
+        : named;
   return {
-    title: `${maneuverTitle(m, coaching)}${away}`,
+    title,
+    quiet: coaching.phase !== 'steps',
     steps: coaching.steps.map((step) => ({ text: stepText(step, m), state: step.state })),
     warnings: coaching.warnings.map(warningText),
   };
@@ -116,6 +126,7 @@ export class CoachPanel {
     this.shown = key;
     this.element.replaceChildren();
     this.element.hidden = !text;
+    this.element.classList.toggle('quiet', !!text?.quiet);
     if (text) {
       const title = document.createElement('div');
       title.className = 'coach-title';
@@ -128,7 +139,8 @@ export class CoachPanel {
         chip.textContent = `${MARKS[step.state]} ${step.text}`;
         steps.appendChild(chip);
       }
-      this.element.append(title, steps);
+      this.element.append(title);
+      if (text.steps.length > 0) this.element.append(steps);
       for (const warning of text.warnings) {
         const line = document.createElement('div');
         line.className = 'coach-warning';
