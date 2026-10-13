@@ -1,5 +1,7 @@
 import type { GlanceEvent, GlanceState, GlanceTarget } from '../camera/glance';
 import { keyLabel } from '../input/keymap';
+import type { Maneuver, Zone } from '../route/route';
+import type { RouteEvent, RouteTracker } from '../route/tracker';
 import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
 import type { Whereabouts } from '../world/locate';
@@ -17,6 +19,7 @@ export interface DebugInfo {
   simTime: number;
   car: CarState;
   glance: GlanceState;
+  route: RouteTracker;
   /** Newest last. */
   recentEvents: readonly string[];
   drawCalls: number;
@@ -79,6 +82,7 @@ export function formatDebugInfo(info: DebugInfo): string {
     `handbr.  ${onOff(c.handbrake)}   belt ${c.beltFastened ? 'fastened' : 'off'}`,
     `indic.   ${indicator}   hazard ${onOff(c.indicators.hazard)}`,
     ...formatGlance(info.glance, info.simTime),
+    ...formatRoute(info.route),
     `draws    ${info.drawCalls}  tris ${info.triangles}`,
     'events',
     ...info.recentEvents.map((line) => `  ${line}`),
@@ -180,5 +184,85 @@ export function describeGlanceEvent(event: GlanceEvent): string | null {
       return event.counted ? null : `${GLANCE_NAMES[event.target]} too short (${event.seconds.toFixed(1)}s)`;
     case 'glanceStarted':
       return null;
+  }
+}
+
+/** The next manoeuvre, progress along the route and the zones the car is in. */
+export function formatRoute(tracker: RouteTracker): string[] {
+  const { route } = tracker;
+  const total = tracker.completed + route.maneuvers.length - tracker.next;
+  const m = route.maneuvers[tracker.next];
+  let next = 'arrived';
+  if (tracker.offRoute) next = 'OFF ROUTE (waiting to be on a road)';
+  else if (m) {
+    const target = m.kind === 'pullOver' ? m.end : m.start;
+    const where = tracker.nextStarted
+      ? 'now'
+      : m.kind === 'pullOut'
+        ? '(parked)'
+        : `in ${Math.max(0, target - tracker.progress).toFixed(0)} m`;
+    next = `${tracker.completed + 1}/${total} ${maneuverName(m)} ${where}`;
+  }
+  const side = tracker.offset >= 0 ? 'L' : 'R';
+  const zones = tracker.inside.map((id) => route.zones[id]).filter((z): z is Zone => !!z);
+  return [
+    `route    ${next}`,
+    `         ${tracker.progress.toFixed(0)} / ${route.finishS.toFixed(0)} m · ${Math.abs(tracker.offset).toFixed(1)} m ${side} of line · reroutes ${tracker.reroutes}`,
+    `zones    ${zones.length > 0 ? zones.map(zoneName).join(', ') : '-'}`,
+  ];
+}
+
+export function maneuverName(m: Maneuver): string {
+  const sign = m.control === 'stop' ? ' (Stop)' : m.control === 'giveWay' ? ' (Give Way)' : '';
+  switch (m.kind) {
+    case 'pullOut':
+      return 'pull out';
+    case 'pullOver':
+      return 'pull over';
+    case 'straight':
+      return `straight on${sign}`;
+    case 'roundabout':
+      return `roundabout exit ${m.exit} (${m.turn === 'uTurn' ? 'U-turn' : m.turn})`;
+    default:
+      return `${m.kind} turn${sign}`;
+  }
+}
+
+function zoneName(zone: Zone): string {
+  switch (zone.kind) {
+    case 'mirror':
+      return 'mirror check';
+    case 'signal':
+      return `signal ${zone.side}`;
+    case 'signalOff':
+      return 'indicator-off line';
+    case 'stopLine':
+      return 'stop line';
+    case 'giveWayLine':
+      return 'give-way line';
+    case 'stopBox':
+      return 'stopping place';
+  }
+}
+
+/** One-line description of a route event for the debug panel. */
+export function describeRouteEvent(event: RouteEvent): string {
+  switch (event.type) {
+    case 'zoneEntered':
+      return `in: ${zoneName(event.zone)} (#${event.zone.maneuver})`;
+    case 'zoneLeft':
+      return `out: ${zoneName(event.zone)} (#${event.zone.maneuver})`;
+    case 'lineCrossed':
+      return `crossed ${zoneName(event.zone)} (#${event.zone.maneuver})`;
+    case 'maneuverStarted':
+      return `#${event.maneuver.index} ${maneuverName(event.maneuver)} started`;
+    case 'maneuverCompleted':
+      return `#${event.maneuver.index} ${maneuverName(event.maneuver)} done`;
+    case 'leftRoute':
+      return 'left the route';
+    case 'rerouted':
+      return `new route, ${event.route.maneuvers.length} manoeuvres`;
+    case 'arrived':
+      return 'arrived';
   }
 }

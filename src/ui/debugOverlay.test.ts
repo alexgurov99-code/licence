@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { createGlanceState } from '../camera/glance';
+import { planRoute } from '../route/planner';
+import { buildRoute } from '../route/route';
+import { createTracker } from '../route/tracker';
 import { buildNetwork } from '../world/network';
-import { describeGlanceEvent, describeMap, formatGlance, formatLocation } from './debugOverlay';
+import {
+  describeGlanceEvent,
+  describeMap,
+  describeRouteEvent,
+  formatGlance,
+  formatLocation,
+  formatRoute,
+  maneuverName,
+} from './debugOverlay';
 
 describe('glance lines in the debug panel', () => {
   it('shows the current glance and how long ago each check was done', () => {
@@ -61,5 +72,28 @@ describe('location line in the debug panel', () => {
   it('sums up the town', () => {
     const summary = describeMap(buildNetwork('debug-summary'));
     expect(summary).toMatch(/^T \d+ \/ cross \d+ \/ roundabout \d+ \/ \d+ roads \/ \d+ houses/);
+  });
+});
+
+describe('route lines in the debug panel', () => {
+  const network = buildNetwork('debug-route');
+  const route = buildRoute(network, planRoute(network));
+  const tracker = createTracker(route, network.start);
+
+  it('shows the next manoeuvre, progress along the route and the zones the car is in', () => {
+    const lines = formatRoute({ ...tracker, inside: route.zones.filter((z) => z.kind === 'signal').slice(0, 1).map((z) => z.id) });
+    expect(lines[0]).toBe(`route    1/${route.maneuvers.length} pull out (parked)`);
+    expect(lines[1]).toMatch(/^ {9}0 \/ \d+ m · \d\.\d m L of line · reroutes 0$/);
+    expect(lines[2]).toBe('zones    signal right');
+    expect(formatRoute({ ...tracker, offRoute: true })[0]).toContain('OFF ROUTE');
+  });
+
+  it('names manoeuvres and route events', () => {
+    const roundabout = { ...route.maneuvers[0]!, kind: 'roundabout' as const, exit: 3, turn: 'right' as const };
+    expect(maneuverName(roundabout)).toBe('roundabout exit 3 (right)');
+    expect(maneuverName({ ...roundabout, kind: 'left', control: 'stop' })).toBe('left turn (Stop)');
+    const line = route.zones.find((z) => z.kind === 'signalOff')!;
+    expect(describeRouteEvent({ type: 'lineCrossed', zone: line })).toBe(`crossed indicator-off line (#${line.maneuver})`);
+    expect(describeRouteEvent({ type: 'arrived' })).toBe('arrived');
   });
 });

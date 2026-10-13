@@ -24,6 +24,8 @@ export const KEYMAP = {
   lookLeft: ['ArrowLeft'],
   lookRight: ['ArrowRight'],
   toggleView: ['KeyC'],
+  /** The whole town on a big map, and back to the small one in the corner. */
+  toggleMap: ['KeyM'],
   toggleDebug: ['Backquote'],
   /** Debug mode only: build a new town from a random seed. */
   newMap: ['KeyN'],

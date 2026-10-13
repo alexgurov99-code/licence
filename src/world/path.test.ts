@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   arc,
   arcFrom,
+  distance,
   forward,
+  joinPaths,
   leftOf,
   line,
   makePath,
@@ -11,8 +13,10 @@ import {
   pathStart,
   pointAt,
   project,
+  projectWithin,
   reversePath,
   samplePath,
+  slicePath,
 } from './path';
 
 const QUARTER = Math.PI / 2;
@@ -122,5 +126,57 @@ describe('paths', () => {
     // On the arc itself the points are no more than 2 m apart.
     const onArc = points.filter((p) => p.s >= 20);
     for (let i = 1; i < onArc.length; i++) expect((onArc[i]?.s ?? 0) - (onArc[i - 1]?.s ?? 0)).toBeLessThanOrEqual(2 + 1e-9);
+  });
+});
+
+describe('pieces of paths', () => {
+  // 20 m straight along +Z, a quarter circle of radius 10 to the left, then 10 m straight along +X.
+  const path = makePath([
+    line({ x: 0, z: 0 }, { x: 0, z: 20 }),
+    arcFrom({ x: 0, z: 20 }, 0, 10, QUARTER),
+    line({ x: 10, z: 30 }, { x: 20, z: 30 }),
+  ]);
+
+  it('slice out a stretch that follows the same points', () => {
+    for (const [from, to] of [
+      [5, 15],
+      [5, 25],
+      [22, 27],
+      [0, path.length],
+      [10, path.length - 3],
+    ] as const) {
+      const part = slicePath(path, from, to);
+      expect(part.length).toBeCloseTo(to - from, 9);
+      for (const k of [0, 0.3, 0.7, 1]) {
+        const a = pointAt(part, k * part.length);
+        const b = pointAt(path, from + k * part.length);
+        expect(distance(a, b)).toBeLessThan(1e-9);
+        expect(a.heading).toBeCloseTo(b.heading, 9);
+      }
+    }
+  });
+
+  it('join end to end', () => {
+    const joined = joinPaths([slicePath(path, 0, 12), slicePath(path, 12, path.length)]);
+    expect(joined.length).toBeCloseTo(path.length, 9);
+    const p = pointAt(joined, 26);
+    const q = pointAt(path, 26);
+    expect(distance(p, q)).toBeLessThan(1e-9);
+  });
+
+  it('find the closest point within a stretch only', () => {
+    // The point is beside the start of the path, but only the last 10 m may be searched.
+    const near = projectWithin(path, { x: 1, z: 2 }, path.length - 10, path.length);
+    expect(near.s).toBeCloseTo(path.length - 10, 9);
+    const full = projectWithin(path, { x: 1, z: 2 }, 0, path.length);
+    const plain = project(path, { x: 1, z: 2 });
+    expect(full.s).toBeCloseTo(plain.s, 9);
+    expect(full.offset).toBeCloseTo(plain.offset, 9);
+    // Inside the arc: same answer as without limits when the stretch covers it.
+    const onArc = projectWithin(path, { x: 3, z: 26 }, 15, 40);
+    expect(onArc.s).toBeCloseTo(project(path, { x: 3, z: 26 }).s, 9);
+    // Limited to part of the arc, the nearer end of that part is the answer.
+    const clipped = projectWithin(path, { x: 3, z: 26 }, 20, 22);
+    expect(clipped.s).toBeCloseTo(22, 9);
   });
 });

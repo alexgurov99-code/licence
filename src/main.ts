@@ -10,12 +10,18 @@ import { CONFIG } from './config';
 import { GEAR_ACTIONS, readGlanceKeys, readHeldKeys, takeCommands } from './input/carInput';
 import { Keyboard } from './input/keyboard';
 import { keyLabel } from './input/keymap';
+import { currentInstruction } from './route/instructions';
+import { planRoute } from './route/planner';
+import { buildRoute, type Route } from './route/route';
+import { RouteMesh } from './route/routeMesh';
+import { createTracker, stepTracker } from './route/tracker';
 import './style.css';
-import { DebugOverlay, describeEvent, describeGlanceEvent, describeMap } from './ui/debugOverlay';
+import { DebugOverlay, describeEvent, describeGlanceEvent, describeMap, describeRouteEvent } from './ui/debugOverlay';
 import { FpsCounter } from './ui/fpsCounter';
 import { GlancePopups } from './ui/glancePopups';
 import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
 import { eventMessage, MessageBanner, stuckHint } from './ui/messages';
+import { Minimap } from './ui/minimap';
 import { randomSeed } from './util/random';
 import { CabinMesh } from './vehicle/cabinMesh';
 import { createCar, stepCar } from './vehicle/car';
@@ -67,6 +73,10 @@ function start(container: HTMLElement): void {
   let debugGraph = new DebugGraph(network);
   let mapSummary = describeMap(network);
   scene.add(world.root, debugGraph.object);
+  // The test route comes from the same seed as the town.
+  let route = buildRoute(network, planRoute(network));
+  let routeMesh = new RouteMesh(route);
+  scene.add(routeMesh.root, routeMesh.debug);
 
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
@@ -103,7 +113,19 @@ function start(container: HTMLElement): void {
   const fpsCounter = new FpsCounter(CONFIG.debug.fpsWindowSeconds);
   const popups = new GlancePopups(container, { mirrors: mirrorCameras.textures, look: lookCamera.texture });
   const messages = new MessageBanner(container);
+  const minimap = new Minimap(container);
+  minimap.setNetwork(network);
+  minimap.setRoute(route);
   addControlsHint(container);
+  // After a wrong turn the satnav finds a new route; the flag, zones and map follow it.
+  const showRoute = (next: Route): void => {
+    scene.remove(routeMesh.root, routeMesh.debug);
+    routeMesh.dispose();
+    route = next;
+    routeMesh = new RouteMesh(route);
+    scene.add(routeMesh.root, routeMesh.debug);
+    minimap.setRoute(route);
+  };
 
   const resize = (): void => {
     const width = container.clientWidth;
@@ -124,6 +146,7 @@ function start(container: HTMLElement): void {
   let car = parkedAtStart();
   let previousMotion = car.motion;
   let glance = createGlanceState();
+  let tracker = createTracker(route, car.motion);
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
@@ -149,12 +172,16 @@ function start(container: HTMLElement): void {
       debugGraph = new DebugGraph(network);
       mapSummary = describeMap(network);
       scene.add(world.root, debugGraph.object);
+      minimap.setNetwork(network);
+      showRoute(buildRoute(network, planRoute(network)));
       car = parkedAtStart();
       previousMotion = car.motion;
+      tracker = createTracker(route, car.motion);
       pendingCommands = [];
       chaseCamera.snapTo(car.motion);
       recentEvents.push(`${simTime.toFixed(1)}s  new map, seed ${network.seed}`);
     }
+    if (keyboard.takePressed('toggleMap')) minimap.toggleLarge();
     if (keyboard.takePressed('toggleView')) {
       view = view === 'firstPerson' ? 'chase' : 'firstPerson';
       applyView();
@@ -174,6 +201,17 @@ function start(container: HTMLElement): void {
         recentEvents.push(`${simTime.toFixed(1)}s  ${describeEvent(event)}`);
         const message = eventMessage(event);
         if (message) messages.show(message);
+      }
+      const routeResult = stepTracker(tracker, car.motion, step, network);
+      tracker = routeResult.tracker;
+      for (const event of routeResult.events) {
+        recentEvents.push(`${simTime.toFixed(1)}s  ${describeRouteEvent(event)}`);
+        if (event.type === 'rerouted') {
+          showRoute(event.route);
+          messages.show('New route: follow the map');
+        } else if (event.type === 'arrived') {
+          messages.show('Route complete', 2 * CONFIG.ui.messageSeconds);
+        }
       }
       const glanceResult = stepGlance(glance, readGlanceKeys(keyboard), simTime, step, CONFIG.glance);
       glance = glanceResult.state;
@@ -208,12 +246,14 @@ function start(container: HTMLElement): void {
     sun.target.position.set(pose.x, 0, pose.z);
 
     popups.update(view, glance, frameSeconds);
+    minimap.update(pose, tracker, currentInstruction(tracker));
 
     renderer.info.reset();
     // Shadows are worked out once, in the first pass, and reused by the other passes of the frame.
     renderer.shadowMap.needsUpdate = true;
-    // The debug lines are only drawn in the main view, never in the mirrors.
+    // The debug lines and zones are only drawn in the main view, never in the mirrors.
     debugGraph.object.visible = false;
+    routeMesh.debug.visible = false;
     // The rear-view mirror looks through the cabin; the door mirrors see the car from outside.
     cabin.setMirrorGlassVisible(false);
     mirrorCameras.render(renderer, scene, (id) => vehicleMesh.setInteriorView(id === 'interior'));
@@ -226,8 +266,10 @@ function start(container: HTMLElement): void {
     vehicleMesh.setInteriorView(view === 'firstPerson');
     const camera = view === 'chase' ? chaseCamera.camera : firstPerson.camera;
     debugGraph.object.visible = debugOverlay.isVisible;
+    routeMesh.debug.visible = debugOverlay.isVisible;
     renderer.render(scene, camera);
     debugGraph.object.visible = false;
+    routeMesh.debug.visible = false;
     popups.render(renderer);
 
     fpsCounter.tick(frameSeconds);
@@ -240,6 +282,7 @@ function start(container: HTMLElement): void {
       simTime,
       car,
       glance,
+      route: tracker,
       recentEvents,
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -270,7 +313,7 @@ function addControlsHint(container: HTMLElement): void {
       `${k(GEAR_ACTIONS.P)} ${k(GEAR_ACTIONS.R)} ${k(GEAR_ACTIONS.N)} ${k(GEAR_ACTIONS.D)} gears P R N D`,
     `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake · ${k('belt')} belt`,
     `${k('indicatorLeft')} ${k('indicatorRight')} indicators · ${k('hazard')} hazards · ` +
-      `${k('toggleView')} view · ${k('toggleDebug')} debug (${k('newMap')} new map)`,
+      `${k('toggleView')} view · ${k('toggleMap')} map · ${k('toggleDebug')} debug (${k('newMap')} new map)`,
     `hold ${k('lookUp')} ${k('lookLeft')} ${k('lookRight')} mirrors · ${k('lookDown')} look back · ` +
       `${k('lookDown')}+${k('lookLeft')} ${k('lookDown')}+${k('lookRight')} over the shoulder`,
   ].join('\n');

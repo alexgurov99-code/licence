@@ -117,6 +117,48 @@ body {
   display: none;
 }
 
+/* Satnav in the bottom-right corner: the next manoeuvre above a small map; the big map (M) in the middle. */
+.minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.minimap.large {
+  z-index: 30;
+  right: 50%;
+  bottom: 50%;
+  transform: translate(50%, 50%);
+}
+
+.minimap-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 10px 6px 6px;
+  font-size: 15px;
+  line-height: 1.25;
+  color: #fff;
+  background: rgb(0 0 0 / 0.72);
+  border-radius: 8px;
+}
+
+.minimap-hint canvas {
+  flex: none;
+}
+
+.minimap-map {
+  display: block;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+
 .fatal-error {
   position: absolute;
   inset: 0;

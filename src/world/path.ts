@@ -148,21 +148,40 @@ export function pathEnd(path: Path): PathPoint {
 
 /** The point of the path closest to `p`. */
 export function project(path: Path, p: Vec2): Projection {
+  return projectWithin(path, p, 0, path.length);
+}
+
+/**
+ * The point of the stretch [from, to] of the path closest to `p`. Useful where a path passes the
+ * same place twice (a route through a junction it comes back to): only the part near where the
+ * car was a moment ago is searched.
+ */
+export function projectWithin(path: Path, p: Vec2, from: number, to: number): Projection {
   let best: Projection | null = null;
   let start = 0;
   for (const piece of path.pieces) {
-    const t = closestOnPiece(piece, p);
-    const pose = pointOnPiece(piece, t);
-    const d = distance(pose, p);
-    if (!best || d < best.distance) {
-      const left = leftOf(pose.heading);
-      const offset = (p.x - pose.x) * left.x + (p.z - pose.z) * left.z;
-      best = { ...pose, s: start + t, offset, distance: d };
+    const a = Math.max(0, from - start);
+    const b = Math.min(piece.length, to - start);
+    if (a <= b) {
+      const t = closestOnPiece(piece, p);
+      // Moving away from the closest point of a line or circle only gets further, so if that
+      // point is outside the allowed stretch, the nearer end of the stretch is the answer.
+      const candidates = t >= a && t <= b ? [t] : [a, b];
+      for (const c of candidates) {
+        const found = projectionAt(piece, c, start, p);
+        if (!best || found.distance < best.distance) best = found;
+      }
     }
     start += piece.length;
   }
-  if (!best) throw new Error('Empty path');
-  return best;
+  return best ?? { ...pointAt(path, from), offset: 0, distance: Infinity };
+}
+
+function projectionAt(piece: PathPiece, t: number, pieceStart: number, p: Vec2): Projection {
+  const pose = pointOnPiece(piece, t);
+  const left = leftOf(pose.heading);
+  const offset = (p.x - pose.x) * left.x + (p.z - pose.z) * left.z;
+  return { ...pose, s: pieceStart + t, offset, distance: distance(pose, p) };
 }
 
 function closestOnPiece(piece: PathPiece, p: Vec2): number {
@@ -195,6 +214,32 @@ export function offsetPath(path: Path, offset: number): Path {
       return arc(piece.centre, radius, piece.startAngle, piece.sweep);
     }),
   );
+}
+
+/** The stretch [from, to] of a path as a path of its own (its distances start again from 0). */
+export function slicePath(path: Path, from: number, to: number): Path {
+  const pieces: PathPiece[] = [];
+  let start = 0;
+  for (const piece of path.pieces) {
+    const a = Math.max(0, from - start);
+    const b = Math.min(piece.length, to - start);
+    start += piece.length;
+    if (b - a <= 1e-9) continue;
+    if (a <= 0 && b >= piece.length) {
+      pieces.push(piece);
+    } else if (piece.kind === 'line') {
+      pieces.push(line(pointOnPiece(piece, a), pointOnPiece(piece, b)));
+    } else {
+      const turn = Math.sign(piece.sweep) || 1;
+      pieces.push(arc(piece.centre, piece.radius, piece.startAngle + (turn * a) / piece.radius, (turn * (b - a)) / piece.radius));
+    }
+  }
+  return makePath(pieces);
+}
+
+/** Paths joined end to end, in order. */
+export function joinPaths(paths: readonly Path[]): Path {
+  return makePath(paths.flatMap((path) => path.pieces));
 }
 
 /** The same path driven the other way. */
