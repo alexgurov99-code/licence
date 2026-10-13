@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, type WorldParams } from '../config';
 import { DIRS } from './layout';
 import { MeshBuilder, UP, type QuadUv, type Rgb, type Vec3 } from './meshBuilder';
-import type { House, Junction, RoadNetwork, RoadSymbol, Sign } from './network';
+import type { Junction, RoadNetwork, RoadSymbol, Sign } from './network';
 import { add, forward, leftOf, samplePath, type Vec2 } from './path';
 import { atlasUv, drawSignAtlas, SIGN_QUAD_SCALE, speedPicture, type AtlasPicture } from './signArt';
 
@@ -14,8 +14,6 @@ const COLOURS = {
   post: 0x8f949a,
   kerb: 0xbdbab1,
   island: 0x5d8a48,
-  walls: [0xe8e2d0, 0xd9e3e8, 0xefe0c8, 0xcfd8c4, 0xe6d3d3, 0xf2efe6, 0xd6cfc0, 0xc9d6df],
-  roofs: [0x5a5f66, 0x7a3b33, 0x3f4a52, 0x6b6b6b, 0x2f3a40, 0x8a5a3c],
 };
 
 /** Flat layers sit a little above each other (and are pulled forward in depth) so they never flicker. */
@@ -25,7 +23,8 @@ const SYMBOL_Y = 0.04;
 
 /**
  * The whole town drawn as a handful of big meshes: grass, asphalt, road markings, signs, symbols
- * painted on the road, and everything solid (houses, posts, islands). The scene is
+ * painted on the road, and everything solid (sign posts, islands; houses and the rest of the
+ * scenery are in sceneryMesh.ts). The scene is
  * drawn several times a frame (mirrors), so fewer, larger meshes keep it fast.
  */
 export class WorldMesh {
@@ -138,7 +137,7 @@ export class WorldMesh {
     return [signMesh, symbolMesh];
   }
 
-  /** Houses, sign posts and roundabout islands. */
+  /** Sign posts and roundabout islands. */
   private solids(network: RoadNetwork, params: WorldParams): THREE.Mesh {
     const builder = new MeshBuilder();
     const post = rgb(COLOURS.post);
@@ -151,8 +150,7 @@ export class WorldMesh {
       const { x, z } = junction.centre;
       builder.cylinder(x, z, params.roundabout.islandRadius, 0, 0.18, 40, rgb(COLOURS.kerb), rgb(COLOURS.island));
     }
-    for (const house of network.houses) houseShape(builder, house);
-    const mesh = this.mesh(toGeometry(builder), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), 'houses');
+    const mesh = this.mesh(toGeometry(builder), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), 'posts and islands');
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
@@ -294,12 +292,4 @@ function quadUv(picture: AtlasPicture): QuadUv {
     [u1, v1],
     [u0, v1],
   ];
-}
-
-function houseShape(builder: MeshBuilder, house: House): void {
-  const walls = rgb(COLOURS.walls[house.style % COLOURS.walls.length] ?? COLOURS.walls[0] ?? 0xffffff);
-  const roof = rgb(COLOURS.roofs[Math.floor(house.style / 7) % COLOURS.roofs.length] ?? COLOURS.roofs[0] ?? 0x555555);
-  const place = { x: house.x, z: house.z, heading: house.heading, width: house.width, depth: house.depth, height: house.height };
-  builder.box(place, walls);
-  builder.gableRoof(place, house.depth * 0.28, 0.4, roof, walls);
 }

@@ -1,0 +1,1754 @@
+<title>Suburb Street Kit</title>
+<style>
+  /* Layout: full-bleed WebGL canvas, one stats panel top-left, one control strip bottom-left. */
+  :root {
+    --panel: rgba(250, 249, 245, 0.88);
+    --panel-edge: rgba(60, 70, 66, 0.18);
+    --ink: #24302c;
+    --ink-soft: #5b6a64;
+    --accent: #3f6b4a;
+    --accent-ink: #f6f6f0;
+    --warn: #b0562f;
+    --sky: #cfe0ea;
+    --font-ui: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel: rgba(28, 33, 31, 0.86); --panel-edge: rgba(220, 230, 222, 0.16);
+      --ink: #e7ece6; --ink-soft: #a5b2ab; --accent: #8fbf98; --accent-ink: #15201a;
+      --warn: #e59a72; --sky: #1d2428; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --panel: rgba(28, 33, 31, 0.86); --panel-edge: rgba(220, 230, 222, 0.16);
+    --ink: #e7ece6; --ink-soft: #a5b2ab; --accent: #8fbf98; --accent-ink: #15201a;
+    --warn: #e59a72; --sky: #1d2428; color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; overflow: hidden; background: var(--sky); color: var(--ink); font-family: var(--font-ui); }
+  #view { position: fixed; inset: 0; }
+  #view canvas { display: block; touch-action: none; }
+  .hud {
+    position: fixed; left: 16px; z-index: 5;
+    background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    max-width: calc(100vw - 32px); box-sizing: border-box;
+  }
+  #stats { top: calc(16px + env(safe-area-inset-top, 0px)); padding: 10px 14px; min-width: 200px; }
+  #stats h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; text-wrap: balance; }
+  #stats dl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 2px 14px; }
+  #stats dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); align-self: center; }
+  #stats dd { margin: 0; font-family: var(--font-num); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+  #stats dd.warn { color: var(--warn); }
+  #controls { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  #controls button {
+    font: 500 14px/1 var(--font-ui); letter-spacing: 0.02em; color: var(--ink);
+    background: transparent; border: 1px solid var(--panel-edge); border-radius: 6px; padding: 8px 12px; cursor: pointer;
+  }
+  #controls button:hover { border-color: var(--accent); }
+  #controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #controls button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  #controls kbd { font-family: var(--font-num); font-size: 11px; opacity: 0.75; margin-left: 4px; }
+  #hint { font-size: 13px; color: var(--ink-soft); padding: 0 6px; min-width: 0; }
+  .label {
+    font: 500 11px/1.2 var(--font-num); color: #22302a; background: rgba(250, 249, 245, 0.85);
+    padding: 2px 5px; border-radius: 3px; white-space: nowrap; pointer-events: none;
+  }
+  @media (max-width: 520px) {
+    #stats { min-width: 0; padding: 8px 10px; }
+    #hint { flex-basis: 100%; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div id="view"></div>
+<section id="stats" class="hud" aria-label="Performance">
+  <h1>NZ suburb kit</h1>
+  <dl>
+    <dt>FPS</dt><dd id="s-fps">–</dd>
+    <dt>Draw calls</dt><dd id="s-calls">–</dd>
+    <dt>Meshes</dt><dd id="s-meshes">–</dd>
+    <dt>Triangles</dt><dd id="s-tris">–</dd>
+    <dt id="s-speed-l" hidden>Speed</dt><dd id="s-speed" hidden>–</dd>
+  </dl>
+</section>
+<nav id="controls" class="hud" aria-label="Camera">
+  <button id="b-overview" type="button" aria-pressed="true">Overview<kbd>1</kbd></button>
+  <button id="b-driver" type="button" aria-pressed="false">Driver<kbd>V</kbd></button>
+  <button id="b-catalogue" type="button" aria-pressed="false">Catalogue<kbd>C</kbd></button>
+  <button id="b-shadows" type="button" aria-pressed="true">Shadows<kbd>B</kbd></button>
+  <span id="hint">Drag to orbit, scroll to zoom.</span>
+</nav>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ===== MODELS START =====
+// NZ suburb low-poly kit. Units: metres. Origin on the ground under the model centre, +Y up.
+// The "face" of every model (house front, car nose, sign front) points to +Z. A car's left side is +X.
+// Everything between the two marker comments is self-contained: copy the whole block together.
+// Requires only `THREE` in scope. No lights, cameras, scene access or randomness in here.
+
+// Shared palette. Models take materials from here; colour parameters go through MATERIALS.byColor(),
+// which caches one material per colour so equal colours share a material.
+const MATERIALS = (() => {
+  const make = (color, roughness = 0.85, metalness = 0, extra = {}) =>
+    new THREE.MeshStandardMaterial({ color, roughness, metalness, ...extra });
+  const flat = { flatShading: true };
+  const cache = new Map();
+  const M = {
+    trim: make(0xf7f7f2, 0.8),
+    glass: make(0x3b4a58, 0.2, 0.1),
+    brick: make(0xa4624a, 0.95),
+    timberLight: make(0xb89a72, 0.9),
+    timberDark: make(0x6e5640, 0.9),
+    concrete: make(0xb8b6b0, 0.95),
+    asphalt: make(0x3c3e42, 0.95),
+    lawn: make(0x6f8f5a, 1),
+    garageDoor: make(0xe6e2d8, 0.7),
+    groove: make(0xb4b0a6, 0.8),
+    aluminium: make(0xc4c7c9, 0.45, 0.5),
+    leafDark: make(0x3f6b3a, 0.95, 0, flat),
+    leafMid: make(0x5a8a45, 0.95, 0, flat),
+    leafLight: make(0x7fa35a, 0.95, 0, flat),
+    blossom: make(0xc23a3a, 0.9, 0, flat),
+    trunk: make(0x5e4a38, 0.95),
+    metal: make(0x8a8f94, 0.5, 0.4),
+    metalDark: make(0x3a3d40, 0.6, 0.3),
+    porcelain: make(0xd9d7d0, 0.4),
+    signYellowGreen: make(0xb9c640, 0.6),
+    hydrantYellow: make(0xe0b43a, 0.8),
+    catsEye: make(0x2f6fd6, 0.3, 0, { emissive: 0x1d4fa8, emissiveIntensity: 0.4 }),
+    lampLens: make(0xf6f1df, 0.4, 0, { emissive: 0xfff1c8, emissiveIntensity: 0.35 }),
+    shelterGlass: make(0xa9c2cc, 0.1, 0, { transparent: true, opacity: 0.4, depthWrite: false }),
+    rubber: make(0x232427, 0.9),
+    bumper: make(0x3a3c40, 0.7),
+    carGlass: make(0x27313b, 0.15, 0.2),
+    hubcap: make(0xa7abb0, 0.4, 0.5, flat),
+    plate: make(0xf0f0ea, 0.6),
+    // Colour presets for parameters (hex numbers, not materials).
+    colors: {
+      wall: { white: 0xf2efe6, cream: 0xe8dcc0, lightGrey: 0xc9ccc8, paleBlue: 0xb9cbd6, paleGreen: 0xc2cfb2, greyBlue: 0x7d8fa0 },
+      roof: { charcoal: 0x4a4f55, green: 0x3f5a45, red: 0x7a3b33, black: 0x2b2d30, lightGrey: 0x9a9ea2 },
+      door: { navy: 0x2f4560, red: 0x9c3b32, green: 0x45634a, timber: 0x8a6a48 },
+      car: { white: 0xf0f0ec, silver: 0xb8bcc0, darkGrey: 0x55595e, black: 0x1f2124, navy: 0x24364f, red: 0x9c2a2a },
+      foliage: { dark: 0x3f6b3a, mid: 0x5a8a45, light: 0x7fa35a },
+    },
+  };
+  // Cached material for a parameter colour. flatShading for foliage and faceted shapes.
+  M.byColor = (hex, roughness = 0.85, metalness = 0, flatShading = false) => {
+    const key = `${hex}|${roughness}|${metalness}|${flatShading}`;
+    if (!cache.has(key)) cache.set(key, make(hex, roughness, metalness, flatShading ? flat : {}));
+    return cache.get(key);
+  };
+  return M;
+})();
+
+// ---------- shared helpers (pure functions, part of the models block) ----------
+
+// shadow flags: 0 none, 1 cast, 2 receive, 3 both
+function addMesh(parent, geo, mat, x, y, z, shadow = 0) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.castShadow = (shadow & 1) === 1;
+  m.receiveShadow = (shadow & 2) === 2;
+  parent.add(m);
+  return m;
+}
+
+// Box by its centre.
+function addBox(parent, w, h, d, mat, x, y, z, shadow = 0) {
+  return addMesh(parent, new THREE.BoxGeometry(w, h, d), mat, x, y, z, shadow);
+}
+
+// Vertical cylinder by its centre.
+function addCyl(parent, rTop, rBot, h, seg, mat, x, y, z, shadow = 0) {
+  return addMesh(parent, new THREE.CylinderGeometry(rTop, rBot, h, seg), mat, x, y, z, shadow);
+}
+
+// Cylinder spanning two points [x,y,z] (trunks, arms, braces).
+function addStrut(parent, a, b, rTop, rBot, seg, mat, shadow = 0) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+  const dir = B.clone().sub(A);
+  const m = addMesh(parent, new THREE.CylinderGeometry(rTop, rBot, dir.length(), seg), mat, 0, 0, 0, shadow);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  return m;
+}
+
+// Extruded prism from a 2D profile [[u, y], ...] (or several profiles), centred on the extrusion axis.
+// axis 'z': u -> world X, extruded along Z.  axis 'x': u -> world Z, extruded along X.
+function prismGeo(profiles, length, axis = 'z') {
+  const list = Array.isArray(profiles[0][0]) ? profiles : [profiles];
+  const shapes = list.map((pts) => new THREE.Shape(pts.map(([u, v]) => new THREE.Vector2(u, v))));
+  const geo = new THREE.ExtrudeGeometry(shapes, { depth: length, bevelEnabled: false, steps: 1, curveSegments: 1 });
+  geo.translate(0, 0, -length / 2);
+  if (axis === 'x') geo.rotateY(-Math.PI / 2);
+  return geo;
+}
+
+// Pentagon wall profile for a gable house: base y0, wall top yW, half-width hw, roof slope s.
+function gableWallPts(hw, y0, yW, s) {
+  return [[-hw, y0], [hw, y0], [hw, yW], [0, yW + hw * s], [-hw, yW]];
+}
+
+// Chevron roof profile sitting on gableWallPts: overhang o, vertical thickness t. Returns {pts, apex} (apex = top y).
+function gableRoofPts(hw, yW, s, o, t) {
+  const e = hw + o, yE = yW - o * s, yA = yW + hw * s;
+  return { pts: [[-e, yE], [0, yA], [e, yE], [e, yE + t], [0, yA + t], [-e, yE + t]], apex: yA + t, eaveTop: yE + t };
+}
+
+// Hip roof, ridge along X. Footprint w (x) by d (z), w >= d, rise h; widest section (eaves) at y = 0.
+// Built with Extrude + a one-segment bevel: the lower half is a mirror that hides inside the walls
+// and reads as the sloped soffit under the overhang.
+function hipRoofGeo(w, d, h) {
+  const e = 0.02, rx = Math.max(w - d, 0.01) / 2;
+  const shape = new THREE.Shape([new THREE.Vector2(-rx, -e / 2), new THREE.Vector2(rx, -e / 2),
+    new THREE.Vector2(rx, e / 2), new THREE.Vector2(-rx, e / 2)]);
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.002, bevelEnabled: true, bevelThickness: h, bevelSize: (d - e) / 2, bevelSegments: 1, curveSegments: 1,
+  });
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+// Flat element on a wall. side: 'f' (+Z face), 'b' (-Z), 'l' (+X), 'r' (-X).
+// along = position along the wall, y = centre height, wallPos = signed coordinate of the wall plane,
+// protrude = how far the front of the panel stands out of the wall.
+function addPanel(parent, side, along, y, w, h, depth, protrude, mat, wallPos, shadow = 0) {
+  const n = side === 'f' || side === 'l' ? 1 : -1;
+  const c = wallPos + n * (protrude - depth / 2);
+  if (side === 'f' || side === 'b') return addBox(parent, w, h, depth, mat, along, y, c, shadow);
+  return addBox(parent, depth, h, w, mat, c, y, along, shadow);
+}
+
+// Window: white frame (proud 4 cm), dark glass, optional sill. 2-3 meshes.
+function addWindow(parent, side, along, y, w, h, wallPos, sill = true, frameMat = MATERIALS.trim) {
+  addPanel(parent, side, along, y, w + 0.14, h + 0.14, 0.12, 0.04, frameMat, wallPos);
+  addPanel(parent, side, along, y, w, h, 0.12, 0.05, MATERIALS.glass, wallPos);
+  if (sill) addPanel(parent, side, along, y - h / 2 - 0.1, w + 0.3, 0.06, 0.2, 0.13, MATERIALS.trim, wallPos);
+}
+
+// Door with a white frame. yBottom = threshold height. 2 meshes.
+function addDoor(parent, side, along, w, h, yBottom, wallPos, mat) {
+  addPanel(parent, side, along, yBottom + h / 2 + 0.04, w + 0.16, h + 0.08, 0.12, 0.03, MATERIALS.trim, wallPos);
+  addPanel(parent, side, along, yBottom + h / 2, w, h, 0.12, 0.045, mat, wallPos);
+}
+
+// Darken/lighten a hex colour (f < 1 darker).
+function shadeHex(hex, f) {
+  const r = Math.min(255, Math.round(((hex >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((hex >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((hex & 255) * f));
+  return (r << 16) | (g << 8) | b;
+}
+
+// Roof material: Colorsteel, slightly satin.
+function roofMat(hex) { return MATERIALS.byColor(hex, 0.7, 0.1); }
+
+// ================= HOUSES =================
+
+/**
+ * createHouseBungalow — single-storey NZ bungalow, gable end facing the street, bay window and covered entry.
+ * Size (W × D × H): 10 × 12 × 5.5 m to the ridge (chimney tops out at 5.75 m).
+ * Params:
+ *   wallColor  hex   weatherboard colour, default 0xf2efe6 (MATERIALS.colors.wall)
+ *   roofColor  hex   roof colour, default 0x4a4f55 (MATERIALS.colors.roof)
+ *   doorColor  hex   front door, default 0x2f4560 (MATERIALS.colors.door)
+ *   hasChimney bool  default true
+ *   mirrored   bool  false: bay on the left as seen from the street (-X), entry on the right (+X). Default false
+ *   plinth     'concrete' | 'brick'  default 'concrete'
+ * userData: { doorX, frontZ } door centre X and front edge of the entry steps (used by createSection).
+ * Meshes: 42 (40 without chimney).
+ */
+function createHouseBungalow(o = {}) {
+  const p = { wallColor: 0xf2efe6, roofColor: 0x4a4f55, doorColor: 0x2f4560, hasChimney: true, mirrored: false, plinth: 'concrete', ...o };
+  const g = new THREE.Group(); g.name = 'HouseBungalow';
+  const sx = p.mirrored ? -1 : 1;
+  const wall = MATERIALS.byColor(p.wallColor), roof = roofMat(p.roofColor);
+  const door = MATERIALS.byColor(p.doorColor, 0.6), batten = MATERIALS.byColor(shadeHex(p.wallColor, 0.86));
+  const base = p.plinth === 'brick' ? MATERIALS.brick : MATERIALS.concrete;
+  const HW = 4.65, ZF = 4.3, ZB = -5.7, PL = 0.5, EAVE = 3.2, S = 0.445, OH = 0.35, T = 0.15;
+  const D = ZF - ZB, ZC = (ZF + ZB) / 2;
+
+  addBox(g, 2 * HW + 0.1, PL, D + 0.1, base, 0, PL / 2, ZC, 3);                         // plinth
+  addMesh(g, prismGeo(gableWallPts(HW, PL, EAVE, S), D), wall, 0, 0, ZC, 3);            // walls + gables
+  const r = gableRoofPts(HW, EAVE, S, OH, T);
+  addMesh(g, prismGeo(r.pts, D + 2 * OH), roof, 0, 0, ZC, 3);                           // roof
+  addBox(g, 0.3, 0.1, D + 2 * OH - 0.04, roof, 0, r.apex, ZC, 1);                       // ridge cap
+  // barge boards on the street gable
+  const bl = (HW + OH) * Math.sqrt(1 + S * S), ang = Math.atan(S);
+  for (const k of [-1, 1]) {
+    const b = addBox(g, bl, 0.24, 0.05, MATERIALS.trim, k * (HW + OH) / 2, (r.apex + r.eaveTop) / 2 - 0.12, ZF + OH + 0.03);
+    b.rotation.z = -k * ang;
+  }
+  if (p.hasChimney) {
+    addBox(g, 0.6, 1.85, 0.6, MATERIALS.brick, -sx * 2.3, 4.82, ZC - 1.6, 1);
+    addBox(g, 0.75, 0.1, 0.75, MATERIALS.concrete, -sx * 2.3, 5.8, ZC - 1.6);
+  }
+  for (const y of [1.25, 1.95, 2.65]) addPanel(g, 'f', 0, y, 2 * HW, 0.05, 0.06, 0.025, batten, ZF); // weatherboard lines
+
+  // bay window (viewer's left)
+  const bx = -sx * 3.0;
+  addBox(g, 3.3, PL, 0.7, base, bx, PL / 2, ZF + 0.3, 1);
+  addBox(g, 3.2, 2.25, 0.65, wall, bx, PL + 1.125, ZF + 0.275, 3);
+  addBox(g, 3.5, 0.12, 0.95, roof, bx, 2.88, ZF + 0.35, 1).rotation.x = 0.25;
+  addWindow(g, 'f', bx, 1.68, 2.4, 1.4, ZF + 0.6);
+  // front window, gable vent window, side windows
+  addWindow(g, 'f', sx * 0.25, 1.95, 1.3, 1.4, ZF);
+  addWindow(g, 'f', 0, 4.15, 0.9, 0.55, ZF, false);
+  for (const z of [2.0, -2.6]) {
+    addWindow(g, 'l', z, 1.95, 1.4, 1.35, HW);
+    addWindow(g, 'r', z, 1.95, 1.4, 1.35, -HW);
+  }
+  // entry: door, landing, steps, canopy on two posts
+  const dx = sx * 2.9;
+  addDoor(g, 'f', dx, 0.9, 2.05, PL, ZF, door);
+  addBox(g, 2.0, PL, 1.1, MATERIALS.concrete, dx, PL / 2, ZF + 0.55, 3);
+  addBox(g, 1.4, 0.33, 0.28, MATERIALS.concrete, dx, 0.165, ZF + 1.24, 2);
+  addBox(g, 1.4, 0.17, 0.28, MATERIALS.concrete, dx, 0.085, ZF + 1.52, 2);
+  addBox(g, 2.1, 0.1, 1.3, roof, dx, 2.86, ZF + 0.6, 1).rotation.x = 0.12;
+  for (const k of [-1, 1]) addBox(g, 0.1, 2.3, 0.1, MATERIALS.trim, dx + k * 0.95, PL + 1.15, ZF + 1.0, 1);
+
+  g.userData = { doorX: dx, frontZ: ZF + 1.66 };
+  return g;
+}
+
+/**
+ * createHouseVilla — villa with a hipped roof and a full-width front veranda.
+ * Size (W × D × H): 12 × 11 × 5.9 m.
+ * Params:
+ *   wallColor      hex   default 0xf2efe6
+ *   roofColor      hex   default 0x7a3b33
+ *   doorColor      hex   default 0x9c3b32
+ *   verandaRailing bool  railing between the posts, default true
+ * userData: { doorX, frontZ }.
+ * Meshes: 41 (31 without railing).
+ */
+function createHouseVilla(o = {}) {
+  const p = { wallColor: 0xf2efe6, roofColor: 0x7a3b33, doorColor: 0x9c3b32, verandaRailing: true, ...o };
+  const g = new THREE.Group(); g.name = 'HouseVilla';
+  const wall = MATERIALS.byColor(p.wallColor), roof = roofMat(p.roofColor);
+  const door = MATERIALS.byColor(p.doorColor, 0.6), batten = MATERIALS.byColor(shadeHex(p.wallColor, 0.86));
+  const HW = 5.6, ZF = 2.7, ZB = -5.14, PL = 0.55, TOP = 3.5, OH = 0.4, S = 0.5;
+  const D = ZF - ZB, ZC = (ZF + ZB) / 2, VD = 2.2;
+
+  addBox(g, 2 * HW + 0.1, PL, D + 0.1, MATERIALS.concrete, 0, PL / 2, ZC, 3);
+  addBox(g, 2 * HW, TOP - PL, D, wall, 0, (TOP + PL) / 2, ZC, 3);
+  const rw = 2 * HW + 2 * OH, rd = D + 2 * OH, rise = (rd / 2) * S;
+  addMesh(g, hipRoofGeo(rw, rd, rise), roof, 0, TOP + OH * S, ZC, 3);
+  addBox(g, rw - rd + 0.1, 0.08, 0.22, roof, 0, TOP + OH * S + rise, ZC, 1);
+  for (const y of [1.4, 2.2, 3.0]) addPanel(g, 'f', 0, y, 2 * HW, 0.05, 0.06, 0.025, batten, ZF);
+
+  // veranda: skirt, deck, lean-to roof, frieze, posts
+  addBox(g, 2 * HW, 0.45, VD, MATERIALS.timberDark, 0, 0.225, ZF + VD / 2, 2);
+  addBox(g, 2 * HW + 0.1, 0.1, VD + 0.05, MATERIALS.timberLight, 0, 0.5, ZF + VD / 2, 3);
+  const vr = addBox(g, 2 * HW + 0.3, 0.08, 2.4, roof, 0, 3.13, ZF + 1.18, 3);
+  vr.rotation.x = Math.atan(0.35 / 2.35);
+  addBox(g, 2 * HW + 0.3, 0.2, 0.05, MATERIALS.trim, 0, 2.86, ZF + 2.34);
+  const postX = [-5.45, -1.6, 1.6, 5.45], pz = ZF + 2.05;
+  for (const x of postX) addBox(g, 0.12, 2.35, 0.12, MATERIALS.trim, x, PL + 1.175, pz, 1);
+  if (p.verandaRailing) {
+    for (const k of [-1, 1]) {
+      const a = k * 1.66, b = k * 5.39, cx = (a + b) / 2, len = Math.abs(b - a);
+      addBox(g, len, 0.06, 0.08, MATERIALS.trim, cx, PL + 0.9, pz);
+      addBox(g, len, 0.05, 0.06, MATERIALS.trim, cx, PL + 0.12, pz);
+      for (const t of [-1, 0, 1]) addBox(g, 0.05, 0.75, 0.05, MATERIALS.trim, cx + t * len * 0.25, PL + 0.5, pz);
+    }
+  }
+  // steps to the veranda
+  addBox(g, 2.4, 0.37, 0.28, MATERIALS.timberLight, 0, 0.185, ZF + VD + 0.14, 2);
+  addBox(g, 2.4, 0.18, 0.28, MATERIALS.timberLight, 0, 0.09, ZF + VD + 0.42, 2);
+  // door, tall front windows, one window each side
+  addDoor(g, 'f', 0, 0.95, 2.2, PL, ZF, door);
+  for (const k of [-1, 1]) addWindow(g, 'f', k * 3.3, 2.25, 1.1, 1.9, ZF);
+  addWindow(g, 'l', ZC, 2.2, 1.1, 1.7, HW);
+  addWindow(g, 'r', ZC, 2.2, 1.1, 1.7, -HW);
+
+  g.userData = { doorX: 0, frontZ: ZF + VD + 0.56 };
+  return g;
+}
+
+/**
+ * createHouseTwoStorey — modern two-storey house with an attached single garage on one side.
+ * Size (W × D × H): 10 × 9.6 × 7.5 m (garage included in the width).
+ * Params:
+ *   wallColor  hex                default 0xc9ccc8
+ *   roofColor  hex                default 0x2b2d30
+ *   roofType   'gable' | 'mono'   gable: ridge along X; mono: high side at the street. Default 'gable'
+ *   brickLower bool               ground floor (and garage) in brick, default false
+ *   mirrored   bool               false: garage on +X (street view right). Default false
+ *   doorColor  hex                default 0x2f4560
+ * userData: { doorX, frontZ, garageX, garageFrontZ }.
+ * Meshes: 36.
+ */
+function createHouseTwoStorey(o = {}) {
+  const p = { wallColor: 0xc9ccc8, roofColor: 0x2b2d30, roofType: 'gable', brickLower: false, mirrored: false, doorColor: 0x2f4560, ...o };
+  const g = new THREE.Group(); g.name = 'HouseTwoStorey';
+  const sx = p.mirrored ? -1 : 1;
+  const wall = MATERIALS.byColor(p.wallColor), roof = roofMat(p.roofColor);
+  const lowerMat = p.brickLower ? MATERIALS.brick : wall, batten = MATERIALS.byColor(shadeHex(p.wallColor, 0.86));
+  const X0 = -4.7, X1 = 1.4, MW = X1 - X0, MX = sx * (X0 + X1) / 2;
+  const ZF = 4.0, ZB = -4.5, D = ZF - ZB, ZC = (ZF + ZB) / 2, HZ = D / 2;
+  const PL = 0.4, F1 = 3.1, TOP = 5.9;
+
+  addBox(g, MW + 0.1, PL, D + 0.1, MATERIALS.concrete, MX, PL / 2, ZC, 3);
+  addBox(g, MW, F1 - PL, D, lowerMat, MX, (F1 + PL) / 2, ZC, 3);
+  if (p.roofType === 'mono') {
+    const hiY = 7.0, k = (hiY - TOP) / D;
+    addMesh(g, prismGeo([[-HZ, F1], [HZ, F1], [HZ, hiY], [-HZ, TOP]], MW, 'x'), wall, MX, 0, ZC, 3);
+    const rl = (D + 0.6) * Math.sqrt(1 + k * k);
+    const rf = addBox(g, MW + 0.5, 0.14, rl, roof, MX, (TOP + hiY) / 2 + 0.08, ZC, 3);
+    rf.rotation.x = -Math.atan(k);
+    addBox(g, MW + 0.5, 0.3, 0.05, MATERIALS.trim, MX, hiY + 0.06, ZF + 0.33);   // fascia on the high edge
+  } else {
+    const S = 0.31;
+    addMesh(g, prismGeo(gableWallPts(HZ, F1, TOP, S), MW, 'x'), wall, MX, 0, ZC, 3);
+    const r = gableRoofPts(HZ, TOP, S, 0.3, 0.15);
+    addMesh(g, prismGeo(r.pts, MW + 0.6, 'x'), roof, MX, 0, ZC, 3);
+    addBox(g, MW + 0.62, 0.1, 0.3, roof, MX, r.apex, ZC, 1);
+  }
+  addPanel(g, 'f', MX, F1, MW + 0.04, 0.14, 0.06, 0.035, MATERIALS.trim, ZF);    // floor band
+  for (const y of [4.0, 5.0]) addPanel(g, 'f', MX, y, MW, 0.05, 0.06, 0.025, batten, ZF);
+
+  // attached garage
+  const GX = sx * 3.15, GW = 3.5, GZF = 4.6, GZB = -2.5, GD = GZF - GZB, GZC = (GZF + GZB) / 2;
+  addBox(g, GW, 2.9, GD, lowerMat, GX, 1.45, GZC, 3);
+  addBox(g, GW + 0.3, 0.12, GD + 0.4, roof, GX, 2.98, GZC + 0.1, 3).rotation.x = 0.03;
+  addBox(g, GW + 0.3, 0.25, 0.05, MATERIALS.trim, GX, 2.86, GZF + 0.32);
+  addPanel(g, 'f', GX, 1.14, 2.9, 2.28, 0.1, 0.02, MATERIALS.trim, GZF);
+  addPanel(g, 'f', GX, 1.08, 2.7, 2.16, 0.1, 0.035, MATERIALS.garageDoor, GZF);
+  for (const y of [0.55, 1.1, 1.65]) addPanel(g, 'f', GX, y, 2.6, 0.03, 0.04, 0.045, MATERIALS.groove, GZF);
+
+  // windows: wide ground-floor window, two upstairs, two on the outer gable end
+  addWindow(g, 'f', sx * -2.6, 2.0, 3.0, 1.6, ZF);
+  addWindow(g, 'f', sx * -2.6, 4.5, 2.0, 1.4, ZF);
+  addWindow(g, 'f', sx * 0.35, 4.5, 1.3, 1.4, ZF);
+  const side = sx > 0 ? 'r' : 'l', sideX = sx * X0;
+  addWindow(g, side, 1.0, 2.0, 1.4, 1.3, sideX);
+  addWindow(g, side, -1.5, 4.5, 1.4, 1.3, sideX);
+  // entry
+  const dx = sx * 0.3;
+  addDoor(g, 'f', dx, 1.0, 2.1, PL, ZF, MATERIALS.byColor(p.doorColor, 0.6));
+  addBox(g, 1.7, 0.08, 1.1, roof, dx, 2.78, ZF + 0.55, 1);
+  addBox(g, 1.4, 0.27, 0.3, MATERIALS.concrete, dx, 0.135, ZF + 0.15, 2);
+  addBox(g, 1.4, 0.13, 0.3, MATERIALS.concrete, dx, 0.065, ZF + 0.45, 2);
+
+  g.userData = { doorX: dx, frontZ: ZF + 0.6, garageX: GX, garageFrontZ: GZF };
+  return g;
+}
+
+/**
+ * createUnitBlock — pair of identical two-storey townhouses under one gable roof (ridge along X).
+ * Size (W × D × H): 14 × 8.6 × 6.0 m.
+ * Params:
+ *   wallColor hex  default 0xe8dcc0
+ *   roofColor hex  default 0x4a4f55
+ *   doorColor hex  default 0x45634a
+ * userData: { doorX (right unit), doorXs: [left, right], frontZ }.
+ * Meshes: 43.
+ */
+function createUnitBlock(o = {}) {
+  const p = { wallColor: 0xe8dcc0, roofColor: 0x4a4f55, doorColor: 0x45634a, ...o };
+  const g = new THREE.Group(); g.name = 'UnitBlock';
+  const wall = MATERIALS.byColor(p.wallColor), roof = roofMat(p.roofColor);
+  const door = MATERIALS.byColor(p.doorColor, 0.6), batten = MATERIALS.byColor(shadeHex(p.wallColor, 0.86));
+  const HW = 6.6, ZF = 3.4, ZB = -4.2, D = ZF - ZB, ZC = (ZF + ZB) / 2, HZ = D / 2;
+  const PL = 0.3, TOP = 5.1, S = 0.19;
+
+  addBox(g, 2 * HW + 0.1, PL, D + 0.1, MATERIALS.concrete, 0, PL / 2, ZC, 3);
+  addMesh(g, prismGeo(gableWallPts(HZ, PL, TOP, S), 2 * HW, 'x'), wall, 0, 0, ZC, 3);
+  const r = gableRoofPts(HZ, TOP, S, 0.4, 0.13);
+  addMesh(g, prismGeo(r.pts, 2 * HW + 0.8, 'x'), roof, 0, 0, ZC, 3);
+  addBox(g, 2 * HW + 0.82, 0.08, 0.3, roof, 0, r.apex, ZC, 1);
+  addPanel(g, 'f', 0, (TOP + PL) / 2, 0.14, TOP - PL, 0.06, 0.04, MATERIALS.trim, ZF);   // party wall line
+  for (const y of [3.3, 4.6]) addPanel(g, 'f', 0, y, 2 * HW, 0.05, 0.06, 0.025, batten, ZF);
+
+  for (const k of [-1, 1]) {
+    const bx = k * 4.7, dx = k * 1.5;
+    // ground-floor bay window
+    addBox(g, 2.3, 2.45, 0.65, wall, bx, 1.225, ZF + 0.275, 3);
+    addBox(g, 2.6, 0.1, 0.85, roof, bx, 2.55, ZF + 0.35, 1).rotation.x = 0.2;
+    addWindow(g, 'f', bx, 1.45, 1.8, 1.3, ZF + 0.6);
+    // door, canopy, two steps
+    addDoor(g, 'f', dx, 0.9, 2.05, PL, ZF, door);
+    addBox(g, 1.5, 0.08, 0.9, roof, dx, 2.58, ZF + 0.45, 1).rotation.x = 0.12;
+    addBox(g, 1.2, 0.2, 0.28, MATERIALS.concrete, dx, 0.1, ZF + 0.14, 2);
+    addBox(g, 1.2, 0.1, 0.28, MATERIALS.concrete, dx, 0.05, ZF + 0.42, 2);
+    // upstairs
+    addWindow(g, 'f', bx, 3.9, 1.6, 1.2, ZF);
+    addWindow(g, 'f', dx, 4.0, 0.8, 0.9, ZF);
+    // end wall window
+    addWindow(g, k > 0 ? 'l' : 'r', -1.2, 3.9, 1.2, 1.1, k * HW, false);
+  }
+
+  g.userData = { doorX: 1.5, doorXs: [-1.5, 1.5], frontZ: ZF + 0.56 };
+  return g;
+}
+
+/**
+ * createCornerShop — corner dairy / cafe: flat roof behind a parapet, veranda over the footpath on three posts,
+ * big shopfront, glass door, sign board, two outdoor tables with two chairs each, A-frame board.
+ * Size (W × D × H): 12 × 10 × 5.0 m (building 12 × 7.5, veranda adds 2.5 m in front).
+ * Params:
+ *   wallColor   hex  default 0xe8dcc0
+ *   signColor   hex  default 0x2f5f8a
+ *   awningColor hex  default 0x7a3b33
+ * userData: { doorX, frontZ (outer edge of the veranda), facadeZ }.
+ * Meshes: 36.
+ */
+function createCornerShop(o = {}) {
+  const p = { wallColor: 0xe8dcc0, signColor: 0x2f5f8a, awningColor: 0x7a3b33, ...o };
+  const g = new THREE.Group(); g.name = 'CornerShop';
+  const wall = MATERIALS.byColor(p.wallColor), awn = MATERIALS.byColor(p.awningColor, 0.6, 0.2);
+  const ZF = 2.5, ZB = -5.0, D = ZF - ZB, ZC = (ZF + ZB) / 2, HW = 6.0;
+
+  addBox(g, 2 * HW, 5.0, D, wall, 0, 2.5, ZC, 3);
+  addBox(g, 2 * HW - 0.4, 0.06, D - 0.4, roofMat(0x4a4f55), 0, 5.0, ZC, 2);      // roof inside the parapet
+  addBox(g, 1.2, 0.6, 0.8, MATERIALS.metal, 3.0, 5.33, ZC - 1.8, 1);              // rooftop AC unit
+  // shopfront
+  for (const k of [-1, 1]) {
+    addPanel(g, 'f', k * 3.45, 1.75, 4.22, 2.42, 0.12, 0.04, MATERIALS.aluminium, ZF);
+    addPanel(g, 'f', k * 3.45, 1.75, 4.1, 2.3, 0.12, 0.05, MATERIALS.glass, ZF);
+  }
+  addPanel(g, 'f', 0, 1.27, 1.5, 2.54, 0.12, 0.04, MATERIALS.aluminium, ZF);
+  addPanel(g, 'f', 0, 1.2, 1.3, 2.36, 0.12, 0.05, MATERIALS.glass, ZF);
+  // veranda over the footpath
+  addBox(g, 2 * HW + 0.2, 0.15, 2.5, awn, 0, 3.15, ZF + 1.25, 3);
+  addBox(g, 2 * HW + 0.2, 0.4, 0.08, awn, 0, 3.05, ZF + 2.5, 1);
+  for (const x of [-5.9, 0, 5.9]) addCyl(g, 0.05, 0.05, 3.0, 8, MATERIALS.metal, x, 1.5, ZF + 2.35, 1);
+  // sign board with a white border
+  addPanel(g, 'f', 0, 4.15, 9.3, 1.25, 0.08, 0.05, MATERIALS.trim, ZF);
+  addPanel(g, 'f', 0, 4.15, 9.0, 1.0, 0.1, 0.09, MATERIALS.byColor(p.signColor, 0.6), ZF);
+  // side window on the -X wall (faces the side street on a corner)
+  addWindow(g, 'r', -1.0, 1.9, 2.5, 1.6, -HW, false, MATERIALS.aluminium);
+  // two tables, two chairs each
+  for (const tx of [-3.4, 3.4]) {
+    const tz = ZF + 1.3;
+    addCyl(g, 0.04, 0.05, 0.72, 8, MATERIALS.metalDark, tx, 0.36, tz);
+    addCyl(g, 0.36, 0.36, 0.04, 12, MATERIALS.timberLight, tx, 0.74, tz, 1);
+    for (const k of [-1, 1]) {
+      const cx = tx + k * 0.62;
+      addBox(g, 0.42, 0.04, 0.42, MATERIALS.metalDark, cx, 0.45, tz);
+      addBox(g, 0.04, 0.42, 0.42, MATERIALS.metalDark, cx + k * 0.21, 0.68, tz);
+      addBox(g, 0.06, 0.43, 0.06, MATERIALS.metalDark, cx, 0.215, tz);
+    }
+  }
+  // A-frame sandwich board
+  for (const k of [-1, 1]) {
+    const b = addBox(g, 0.6, 0.9, 0.03, MATERIALS.metalDark, 1.6, 0.44, ZF + 1.7 + k * 0.09);
+    b.rotation.x = -k * 0.2;
+  }
+
+  g.userData = { doorX: 0, frontZ: ZF + 2.5, facadeZ: ZF };
+  return g;
+}
+
+/**
+ * createGarage — detached single garage or open carport.
+ * Size (W × D × H): 4 × 6.5 × 2.9 m (carport 4 × 6.5 × 2.8).
+ * Params:
+ *   type      'garage' | 'carport'  default 'garage'
+ *   wallColor hex                   default 0xf2efe6 (garage only)
+ *   roofColor hex                   default 0x4a4f55
+ * Meshes: garage 11, carport 8.
+ */
+function createGarage(o = {}) {
+  const p = { type: 'garage', wallColor: 0xf2efe6, roofColor: 0x4a4f55, ...o };
+  const g = new THREE.Group(); g.name = p.type === 'carport' ? 'Carport' : 'Garage';
+  const roof = roofMat(p.roofColor);
+  if (p.type === 'carport') {
+    for (const x of [-1.85, 1.85]) {
+      for (const z of [-2.95, 2.95]) addBox(g, 0.1, 2.5, 0.1, MATERIALS.timberLight, x, 1.25, z, 1);
+      addBox(g, 0.12, 0.22, 6.5, MATERIALS.timberLight, x, 2.55, 0, 1);
+    }
+    addBox(g, 4.0, 0.08, 6.5, roof, 0, 2.72, 0, 3).rotation.x = -0.03;
+    addBox(g, 3.8, 0.06, 6.3, MATERIALS.concrete, 0, 0.03, 0, 2);
+    return g;
+  }
+  const wall = MATERIALS.byColor(p.wallColor);
+  const k = 0.3 / 6.0;
+  addMesh(g, prismGeo([[-3.0, 0], [3.0, 0], [3.0, 2.75], [-3.0, 2.45]], 3.6, 'x'), wall, 0, 0, 0, 3);
+  const rf = addBox(g, 4.0, 0.1, 6.5 * Math.sqrt(1 + k * k), roof, 0, 2.66, 0, 3);
+  rf.rotation.x = -Math.atan(k);
+  addBox(g, 4.0, 0.18, 0.04, MATERIALS.trim, 0, 2.7, 3.25);
+  addBox(g, 3.8, 0.06, 0.6, MATERIALS.concrete, 0, 0.03, 3.3, 2);                  // apron
+  addPanel(g, 'f', 0, 1.14, 2.9, 2.25, 0.1, 0.02, MATERIALS.trim, 3.0);
+  addPanel(g, 'f', 0, 1.08, 2.7, 2.15, 0.1, 0.035, MATERIALS.garageDoor, 3.0);
+  for (const y of [0.55, 1.1, 1.65]) addPanel(g, 'f', 0, y, 2.6, 0.03, 0.04, 0.045, MATERIALS.groove, 3.0);
+  addWindow(g, 'l', -1.0, 1.5, 1.0, 0.8, 1.8, false);
+  return g;
+}
+
+// ================= SECTION =================
+
+/**
+ * createSection — an 18 × 30 m residential section (lot) with a house, front fence, paths, garden and garage.
+ * The street edge is the +Z side: the front boundary sits at z = +15, the back at z = -15.
+ * Size (W × D × H): 18 × 30 × (house height) m.
+ * Params:
+ *   houseType  'bungalow' | 'villa' | 'twoStorey' | 'unitBlock'  default 'bungalow'
+ *   house      object  params passed to the house function (wallColor, roofColor, ...)   default {}
+ *   fenceType  'picket' | 'paling' | 'hedge' | 'none'                                     default 'picket'
+ *   fenceColor hex     picket colour                                                      default 0xf7f7f2
+ *   trees      0..3    number of trees/shrubs placed in fixed slots                       default 2
+ *   treeKinds  array of 'deciduous' | 'pohutukawa' | 'cabbage' | 'conifer' | 'shrub', one per slot
+ *              slot 0: front yard far corner, slot 1: by the front fence, slot 2: back yard
+ *              default ['deciduous', 'cabbage', 'pohutukawa']
+ *   treeHeights array of numbers or null, per slot (null = model default)                 default []
+ *   clothesline bool   rotary clothesline in the back yard                                 default true
+ *   garage     'garage' | 'carport' | 'none'   ignored for twoStorey (has its own)        default 'garage'
+ *   driveSide  'right' | 'left'  driveway side as seen from the street (+X is right)      default 'right'
+ *   letterbox  { style, color }  passed to createLetterbox                                default {}
+ *   shrubs     bool    two shrubs by the house front                                      default true
+ * userData: { drivewayX, parkZ, gateX } local coords (park spot centre on the driveway, car nose toward -Z).
+ * Meshes: about 55-120 depending on house and fence.
+ */
+function createSection(o = {}) {
+  const p = {
+    houseType: 'bungalow', house: {}, fenceType: 'picket', fenceColor: 0xf7f7f2, trees: 2,
+    treeKinds: ['deciduous', 'cabbage', 'pohutukawa'], treeHeights: [], clothesline: true,
+    garage: 'garage', driveSide: 'right', letterbox: {}, shrubs: true, ...o,
+  };
+  const g = new THREE.Group(); g.name = 'Section';
+  const sx = p.driveSide === 'left' ? -1 : 1;
+  const FRONT = 15, DX = sx * 7, DW = 3;
+
+  addBox(g, 18, 0.04, 30, MATERIALS.lawn, 0, 0.02, 0, 2);
+
+  // house
+  let house, hx;
+  const hp = { ...p.house };
+  if (p.houseType === 'villa') { house = createHouseVilla(hp); hx = -sx * 1.0; }
+  else if (p.houseType === 'unitBlock') { house = createUnitBlock(hp); hx = -sx * 2.0; }
+  else if (p.houseType === 'twoStorey') { house = createHouseTwoStorey({ ...hp, mirrored: sx < 0 }); hx = sx * 3.85; }
+  else { house = createHouseBungalow(hp); hx = -sx * 0.3; }
+  const hz = 9.5 - house.userData.frontZ;
+  house.position.set(hx, 0, hz);
+  g.add(house);
+  const ud = house.userData;
+
+  // driveway, garage
+  let driveEnd;
+  if (p.houseType === 'twoStorey') driveEnd = hz + ud.garageFrontZ;
+  else if (p.garage !== 'none') {
+    const gz = hz - 1.0;
+    const gar = createGarage({ type: p.garage, wallColor: hp.wallColor ?? 0xf2efe6, roofColor: hp.roofColor ?? 0x4a4f55 });
+    gar.position.set(DX, 0, gz - 3.25);
+    g.add(gar);
+    driveEnd = gz;
+  } else driveEnd = hz - 2;
+  const dLen = FRONT - driveEnd;
+  addBox(g, DW, 0.03, dLen, MATERIALS.concrete, DX, 0.055, driveEnd + dLen / 2, 2);
+
+  // front path from the gate to the door (unit blocks get a cross path to both doors)
+  const doors = (ud.doorXs ?? [ud.doorX]).map((x) => hx + x);
+  const gateX = doors.reduce((a, b) => a + b, 0) / doors.length;
+  const pathStart = hz + ud.frontZ - 0.05;
+  addBox(g, 1.0, 0.03, FRONT - pathStart, MATERIALS.concrete, gateX, 0.055, (FRONT + pathStart) / 2, 2);
+  if (doors.length > 1) {
+    const w = Math.abs(doors[1] - doors[0]) + 1.2;
+    addBox(g, w, 0.03, 1.0, MATERIALS.concrete, gateX, 0.056, pathStart + 0.5, 2);
+  }
+
+  // front fence with gaps for the gate and the driveway
+  if (p.fenceType !== 'none') {
+    const gaps = [[gateX - 0.5, gateX + 0.5], [DX - 1.6, DX + 1.6]].sort((a, b) => a[0] - b[0]);
+    let x = -9;
+    const runs = [];
+    for (const [a, b] of gaps) { runs.push([x, a]); x = b; }
+    runs.push([x, 9]);
+    for (const [a, b] of runs) {
+      const len = b - a;
+      if (len < 0.4) continue;
+      const f = p.fenceType === 'hedge'
+        ? createHedge({ length: len, height: 1.1 })
+        : createFence({ type: p.fenceType, length: len, color: p.fenceColor });
+      f.position.set((a + b) / 2, 0, FRONT - (p.fenceType === 'hedge' ? 0.5 : 0.1));
+      g.add(f);
+    }
+    if (p.fenceType !== 'hedge') {
+      const gate = createFence({ type: p.fenceType, length: 0.96, color: p.fenceColor, posts: false });
+      gate.position.set(gateX, 0, FRONT - 0.1);
+      g.add(gate);
+    }
+  }
+  const lb = createLetterbox(p.letterbox);
+  const lbSide = gateX - DX < 0 ? -1 : 1;
+  lb.position.set(gateX + lbSide * 0.9, 0, FRONT + 0.15);
+  g.add(lb);
+
+  // trees in fixed slots
+  const slots = [[-sx * 6.0, 12.0], [gateX - sx * 2.4, 13.3], [-sx * 4.5, -10.5]];
+  for (let i = 0; i < Math.min(3, p.trees); i++) {
+    const kind = p.treeKinds[i] ?? 'shrub';
+    const h = p.treeHeights[i] ?? undefined;
+    const opts = h ? { height: h } : {};
+    let t;
+    if (kind === 'deciduous') t = createTreeDeciduous(opts);
+    else if (kind === 'pohutukawa') t = createTreePohutukawa(opts);
+    else if (kind === 'cabbage') t = createCabbageTree(opts);
+    else if (kind === 'conifer') t = createTreeConifer(opts);
+    else t = createShrub(h ? { size: h } : {});
+    t.position.set(slots[i][0], 0, slots[i][1]);
+    g.add(t);
+  }
+  if (p.shrubs) {
+    const fz = pathStart + 1.8;
+    for (const [x, s] of [[gateX - 1.6, 1.1], [gateX + 1.5, 0.9]]) {
+      if (Math.abs(x - DX) < 2.2) continue;
+      const sh = createShrub({ size: s });
+      sh.position.set(x, 0, fz);
+      g.add(sh);
+    }
+  }
+
+  // rotary clothesline: pole, two crossed arms, square line ring
+  if (p.clothesline) {
+    const cx = sx * 1.0, cz = -9.0;
+    addCyl(g, 0.035, 0.035, 2.1, 8, MATERIALS.metal, cx, 1.05, cz, 1);
+    for (const a of [Math.PI / 4, -Math.PI / 4]) {
+      const arm = addBox(g, 2.6, 0.03, 0.03, MATERIALS.metal, cx, 2.0, cz);
+      arm.rotation.y = a;
+    }
+    const ring = addMesh(g, new THREE.TorusGeometry(1.25, 0.012, 3, 4), MATERIALS.metal, cx, 1.98, cz);
+    ring.rotation.set(Math.PI / 2, 0, Math.PI / 4);
+  }
+
+  g.userData = { drivewayX: DX, parkZ: Math.min(FRONT - 3.2, driveEnd + 3.0), gateX };
+  return g;
+}
+
+// ================= TREES & GREENERY =================
+// `height` scales the whole tree uniformly.
+
+/**
+ * createTreeDeciduous — generic broadleaf street tree (oak / plane / maple type).
+ * Size (W × D × H): about 0.8·H × 0.7·H × H; default H = 9 m (valid 6–12).
+ * Params: height (m) default 9; foliageColor hex default 0x5a8a45.
+ * Meshes: 4.
+ */
+function createTreeDeciduous(o = {}) {
+  const p = { height: 9, foliageColor: 0x5a8a45, ...o };
+  const g = new THREE.Group(); g.name = 'TreeDeciduous';
+  const s = p.height / 9;
+  const leaf = MATERIALS.byColor(p.foliageColor, 0.95, 0, true);
+  const leaf2 = MATERIALS.byColor(shadeHex(p.foliageColor, 0.88), 0.95, 0, true);
+  addCyl(g, 0.16 * s, 0.25 * s, 4.4 * s, 8, MATERIALS.trunk, 0, 2.2 * s, 0, 1);
+  const crown = [[0, 6.45, 0, 2.7, leaf], [1.7, 5.1, 0.8, 2.05, leaf2], [-1.55, 5.35, -0.7, 1.95, leaf]];
+  for (const [x, y, z, r, m] of crown) {
+    const c = addMesh(g, new THREE.IcosahedronGeometry(r * s, 1), m, x * s, y * s, z * s, 1);
+    c.scale.y = 0.9;
+  }
+  return g;
+}
+
+/**
+ * createTreePohutukawa — pōhutukawa: low, wide, several leaning trunks, flat spreading crown.
+ * Size (W × D × H): about 1.5·H × 1.3·H × H; default H = 6.5 m (valid 5–8).
+ * Params: height (m) default 6.5; flowering bool (red blossom patches) default false.
+ * Meshes: 7 (10 flowering).
+ */
+function createTreePohutukawa(o = {}) {
+  const p = { height: 6.5, flowering: false, ...o };
+  const g = new THREE.Group(); g.name = 'TreePohutukawa';
+  const s = p.height / 6.5;
+  for (const a of [0.3, 2.4, 4.4]) {
+    const tip = [Math.cos(a) * 1.9 * s, 3.4 * s, Math.sin(a) * 1.9 * s];
+    addStrut(g, [0, 0.13 * s, 0], tip, 0.13 * s, 0.22 * s, 8, MATERIALS.trunk, 1);
+  }
+  const crown = [[0, 5.0, 0, 3.1], [2.6, 4.1, 1.3, 2.4], [-2.5, 4.2, 1.4, 2.3], [0.1, 4.0, -2.3, 2.4]];
+  for (const [x, y, z, r] of crown) {
+    const c = addMesh(g, new THREE.IcosahedronGeometry(r * s, 1), MATERIALS.leafDark, x * s, y * s, z * s, 1);
+    c.scale.y = 0.48;
+  }
+  if (p.flowering) {
+    for (const [x, y, z, r] of [[2.6, 5.0, 1.3, 1.0], [-2.5, 5.1, 1.4, 0.95], [0.5, 6.15, 0.2, 1.15]]) {
+      const f = addMesh(g, new THREE.IcosahedronGeometry(r * s, 1), MATERIALS.blossom, x * s, y * s, z * s);
+      f.scale.y = 0.42;
+    }
+  }
+  return g;
+}
+
+/**
+ * createCabbageTree — tī kōuka: slim trunk that forks near the top, a spiky tuft of leaves on each branch.
+ * Size (W × D × H): about 2.6 × 2.6 × H m; default H = 5.5 m (valid 4–7).
+ * Params: height (m) default 5.5; branches 2 | 3 default 3.
+ * Meshes: 10 (7 with two branches). Each tuft is two crossed star-shaped extrusions.
+ */
+function createCabbageTree(o = {}) {
+  const p = { height: 5.5, branches: 3, ...o };
+  const g = new THREE.Group(); g.name = 'CabbageTree';
+  const s = p.height / 5.5;
+  addCyl(g, 0.1 * s, 0.17 * s, 3.6 * s, 8, MATERIALS.trunk, 0, 1.8 * s, 0, 1);
+  // star outline: 12 long narrow leaves
+  const n = 12, R = 0.85 * s, r = 0.1 * s, pts = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = (i / (n * 2)) * Math.PI * 2 + Math.PI / 2, rr = i % 2 ? r : R * (i % 4 === 0 ? 1 : 0.85);
+    pts.push(new THREE.Vector2(Math.cos(a) * rr, Math.sin(a) * rr));
+  }
+  const star = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth: 0.03 * s, bevelEnabled: false });
+  star.translate(0, 0, -0.015 * s);
+  const angles = p.branches === 2 ? [0.6, 3.7] : [0.4, 2.5, 4.6];
+  for (const a of angles) {
+    const tip = [Math.cos(a) * 0.62 * s, 4.65 * s, Math.sin(a) * 0.62 * s];
+    addStrut(g, [0, 3.45 * s, 0], tip, 0.07 * s, 0.1 * s, 8, MATERIALS.trunk);
+    for (const ry of [a, a + Math.PI / 2]) {
+      const t = addMesh(g, star, MATERIALS.leafLight, tip[0], tip[1], tip[2], 1);
+      t.rotation.y = ry;
+    }
+  }
+  return g;
+}
+
+/**
+ * createTreeConifer — conifer / pine: three stacked cones.
+ * Size (W × D × H): about 0.48·H × 0.48·H × H; default H = 10 m (valid 6–14).
+ * Params: height (m) default 10; foliageColor hex default 0x3f6b3a.
+ * Meshes: 4.
+ */
+function createTreeConifer(o = {}) {
+  const p = { height: 10, foliageColor: 0x3f6b3a, ...o };
+  const g = new THREE.Group(); g.name = 'TreeConifer';
+  const s = p.height / 10;
+  const leaf = MATERIALS.byColor(p.foliageColor, 0.95, 0, true);
+  addCyl(g, 0.12 * s, 0.22 * s, 2.0 * s, 8, MATERIALS.trunk, 0, 1.0 * s, 0, 1);
+  for (const [r, h, y] of [[2.4, 4.2, 3.5], [1.9, 3.8, 5.4], [1.3, 3.2, 8.4]]) {
+    addMesh(g, new THREE.ConeGeometry(r * s, h * s, 8), leaf, 0, y * s, 0, 1);
+  }
+  return g;
+}
+
+/**
+ * createShrub — garden shrub: one or two flattened blobs.
+ * Size (W × D × H): about 1.6·size × 1.3·size × size; default size = 1.4 m (valid 0.6–2).
+ * Params: size (m, height) default 1.4; color hex default 0x5a8a45; double bool default true.
+ * Meshes: 2 (1 single).
+ */
+function createShrub(o = {}) {
+  const p = { size: 1.4, color: 0x5a8a45, double: true, ...o };
+  const g = new THREE.Group(); g.name = 'Shrub';
+  const s = p.size, mat = MATERIALS.byColor(p.color, 0.95, 0, true);
+  addMesh(g, new THREE.IcosahedronGeometry(0.6 * s, 1), mat, 0, 0.52 * s, 0, 1).scale.y = 0.8;
+  if (p.double) {
+    addMesh(g, new THREE.IcosahedronGeometry(0.42 * s, 1), MATERIALS.byColor(shadeHex(p.color, 1.12), 0.95, 0, true),
+      0.48 * s, 0.34 * s, 0.18 * s).scale.y = 0.8;
+  }
+  return g;
+}
+
+/**
+ * createHedge — clipped hedge section, runs along X, rounded top.
+ * Size (W × D × H): length × 0.9 × height m.
+ * Params: length (m) default 3; height (m) default 1.2 (valid 1–1.5); color hex default 0x3f6b3a.
+ * Meshes: 2.
+ */
+function createHedge(o = {}) {
+  const p = { length: 3, height: 1.2, color: 0x3f6b3a, ...o };
+  const g = new THREE.Group(); g.name = 'Hedge';
+  const mat = MATERIALS.byColor(p.color, 0.95, 0, true), cap = 0.32;
+  addBox(g, p.length, p.height - cap, 0.9, mat, 0, (p.height - cap) / 2, 0, 3);
+  const top = new THREE.CylinderGeometry(0.45, 0.45, p.length, 10);
+  top.rotateZ(Math.PI / 2);
+  top.scale(1, cap / 0.45, 1);
+  addMesh(g, top, mat, 0, p.height - cap, 0, 1);
+  return g;
+}
+
+// ================= ROADSIDE =================
+
+/**
+ * createLetterbox — letterbox on a 1 m post, front (slot) facing +Z.
+ * Size (W × D × H): 0.35 × 0.45 × 1.3 m.
+ * Params:
+ *   style 'box' (box with sloping lid) | 'house' (little gabled house) | 'drum' (horizontal cylinder). Default 'box'
+ *   color hex  default 0x9c3b32
+ * Meshes: 4.
+ */
+function createLetterbox(o = {}) {
+  const p = { style: 'box', color: 0x9c3b32, ...o };
+  const g = new THREE.Group(); g.name = 'Letterbox';
+  const mat = MATERIALS.byColor(p.color, 0.6);
+  addBox(g, 0.09, 1.0, 0.09, MATERIALS.timberLight, 0, 0.5, 0, 1);
+  if (p.style === 'drum') {
+    addBox(g, 0.2, 0.03, 0.4, MATERIALS.timberLight, 0, 1.015, 0);
+    const d = new THREE.CylinderGeometry(0.15, 0.15, 0.45, 10);
+    d.rotateX(Math.PI / 2);
+    addMesh(g, d, mat, 0, 1.18, 0, 1);
+    const c = new THREE.CylinderGeometry(0.155, 0.155, 0.02, 10);
+    c.rotateX(Math.PI / 2);
+    addMesh(g, c, MATERIALS.byColor(shadeHex(p.color, 0.7), 0.6), 0, 1.18, 0.23);
+  } else if (p.style === 'house') {
+    addBox(g, 0.35, 0.22, 0.45, mat, 0, 1.11, 0, 1);
+    addMesh(g, prismGeo([[-0.23, 1.22], [0.23, 1.22], [0, 1.34]], 0.52), MATERIALS.byColor(shadeHex(p.color, 0.6), 0.6), 0, 0, 0, 1);
+    addBox(g, 0.2, 0.035, 0.02, MATERIALS.metalDark, 0, 1.15, 0.23);
+  } else {
+    addBox(g, 0.35, 0.26, 0.45, mat, 0, 1.13, 0, 1);
+    addBox(g, 0.39, 0.04, 0.5, MATERIALS.byColor(shadeHex(p.color, 0.8), 0.6), 0, 1.28, 0).rotation.x = -0.1;
+    addBox(g, 0.22, 0.035, 0.02, MATERIALS.metalDark, 0, 1.18, 0.23);
+  }
+  return g;
+}
+
+/**
+ * createFence — one fence section running along X, street face +Z, posts at both ends.
+ * Size (W × D × H): length × 0.1 × (1.0 picket | 1.8 paling | 0.9 post).
+ * Params:
+ *   type   'picket' | 'paling' | 'post'  default 'picket'
+ *   length (m)  default 2.5
+ *   color  hex  picket colour, default 0xf7f7f2
+ *   posts  bool end posts (false for a gate leaf), default true
+ * The picket comb (pickets + both rails) is one Shape+Extrude mesh, so length does not add meshes.
+ * Meshes: picket 3, paling 5, post 3-5 (one fewer pair without posts).
+ */
+function createFence(o = {}) {
+  const p = { type: 'picket', length: 2.5, color: 0xf7f7f2, posts: true, ...o };
+  const g = new THREE.Group(); g.name = 'Fence';
+  const L = p.length, h2 = L / 2;
+  if (p.type === 'paling') {
+    if (p.posts) for (const k of [-1, 1]) addBox(g, 0.1, 1.9, 0.1, MATERIALS.timberDark, k * (h2 - 0.05), 0.95, -0.07, 1);
+    addBox(g, L, 1.75, 0.025, MATERIALS.timberLight, 0, 0.95, 0, 3);
+    for (const y of [0.4, 1.5]) addBox(g, L, 0.1, 0.045, MATERIALS.timberDark, 0, y, -0.035);
+    return g;
+  }
+  if (p.type === 'post') {
+    const n = Math.min(4, Math.max(2, Math.round(L / 2.5) + 1));
+    if (p.posts) for (let i = 0; i < n; i++) addBox(g, 0.12, 0.9, 0.12, MATERIALS.timberDark, -h2 + 0.06 + i * (L - 0.12) / (n - 1), 0.45, 0, 1);
+    addBox(g, L, 0.1, 0.05, MATERIALS.timberDark, 0, 0.75, 0.08);
+    return g;
+  }
+  // picket: one comb shape, pickets with pointed tops, two rails in the same plane
+  const mat = MATERIALS.byColor(p.color, 0.8);
+  const inset = p.posts ? 0.11 : 0.02, x0 = -h2 + inset, span = L - 2 * inset;
+  const pw = 0.08, H = 1.0, tip = 0.05, yb = 0.06, r1 = [0.22, 0.29], r2 = [0.72, 0.79];
+  const n = Math.max(2, Math.round(span / 0.15));
+  const step = (span - pw) / (n - 1);
+  const xs = Array.from({ length: n }, (_, i) => x0 + i * step);
+  const pts = [];
+  for (let i = 0; i < n; i++) {               // bottom edge, left to right
+    pts.push([xs[i], yb], [xs[i] + pw, yb]);
+    if (i < n - 1) pts.push([xs[i] + pw, r1[0]], [xs[i + 1], r1[0]]);
+  }
+  for (let i = n - 1; i >= 0; i--) {          // top edge, right to left
+    pts.push([xs[i] + pw, H - tip], [xs[i] + pw / 2, H], [xs[i], H - tip]);
+    if (i > 0) pts.push([xs[i], r2[1]], [xs[i - 1] + pw, r2[1]]);
+  }
+  const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+  for (let i = 0; i < n - 1; i++) {           // gaps between the rails
+    const a = xs[i] + pw, b = xs[i + 1];
+    shape.holes.push(new THREE.Path([new THREE.Vector2(a, r1[1]), new THREE.Vector2(a, r2[0]),
+      new THREE.Vector2(b, r2[0]), new THREE.Vector2(b, r1[1])]));
+  }
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.025, bevelEnabled: false });
+  geo.translate(0, 0, -0.0125);
+  addMesh(g, geo, mat, 0, 0, 0, 1);
+  if (p.posts) for (const k of [-1, 1]) addBox(g, 0.1, 1.08, 0.1, mat, k * (h2 - 0.05), 0.54, -0.01, 1);
+  return g;
+}
+
+/**
+ * createStreetLight — 8 m street light; the arm reaches 1.5 m toward +Z (the road).
+ * Origin at the pole base (the pole is the footprint).
+ * Size (W × D × H): 0.35 × 1.9 × 8.0 m.
+ * Meshes: 5.
+ */
+function createStreetLight() {
+  const g = new THREE.Group(); g.name = 'StreetLight';
+  addBox(g, 0.35, 0.12, 0.35, MATERIALS.concrete, 0, 0.06, 0, 2);
+  addCyl(g, 0.07, 0.11, 7.6, 8, MATERIALS.metal, 0, 3.8, 0, 1);
+  addStrut(g, [0, 7.5, 0], [0, 7.92, 0.55], 0.045, 0.05, 8, MATERIALS.metal, 1);
+  addBox(g, 0.32, 0.14, 1.25, MATERIALS.metalDark, 0, 7.93, 1.12, 1);
+  addBox(g, 0.24, 0.03, 0.6, MATERIALS.lampLens, 0, 7.85, 1.42);
+  return g;
+}
+
+/**
+ * createPowerPole — timber power pole with a crossarm (along Z, across the road) and 3 insulators. No wires.
+ * Origin at the pole base.
+ * Size (W × D × H): 0.34 × 2.2 × 10 m.
+ * Meshes: 6.
+ */
+function createPowerPole() {
+  const g = new THREE.Group(); g.name = 'PowerPole';
+  const wood = MATERIALS.byColor(0x5f4e3e, 0.95);
+  addCyl(g, 0.13, 0.17, 10, 8, wood, 0, 5, 0, 1);
+  addBox(g, 0.1, 0.12, 2.2, wood, 0, 9.4, 0.0, 1);
+  addStrut(g, [0, 8.7, 0.08], [0, 9.34, 0.75], 0.025, 0.025, 6, MATERIALS.metal);
+  for (const z of [-0.95, 0.35, 0.95]) addCyl(g, 0.035, 0.05, 0.18, 8, MATERIALS.porcelain, 0, 9.55, z);
+  return g;
+}
+
+/**
+ * createBusStop — bus shelter: glass back wall, roof on two posts, bench inside, sign pole beside it.
+ * Opening faces +Z (the road).
+ * Size (W × D × H): 3.6 × 1.6 × 2.85 m (shelter 3 × 1.5 × 2.5; the sign pole stands at x = +1.85).
+ * Meshes: 8.
+ */
+function createBusStop() {
+  const g = new THREE.Group(); g.name = 'BusStop';
+  addBox(g, 3.1, 0.08, 1.6, MATERIALS.metalDark, 0, 2.46, 0, 3);
+  for (const x of [-1.45, 1.45]) addBox(g, 0.08, 2.42, 0.08, MATERIALS.metal, x, 1.21, -0.7, 1);
+  addBox(g, 2.8, 2.0, 0.03, MATERIALS.shelterGlass, 0, 1.2, -0.7);
+  addBox(g, 2.2, 0.05, 0.38, MATERIALS.timberLight, 0, 0.46, -0.42, 1);
+  addBox(g, 2.0, 0.43, 0.04, MATERIALS.metal, 0, 0.215, -0.5);
+  addCyl(g, 0.04, 0.04, 2.6, 8, MATERIALS.metal, 1.85, 1.3, 0.6, 1);
+  addBox(g, 0.42, 0.55, 0.04, MATERIALS.signYellowGreen, 1.85, 2.45, 0.6, 1);
+  return g;
+}
+
+/**
+ * createBench — park bench, seat facing +Z: two extruded side frames, two seat slats, two back slats.
+ * Size (W × D × H): 1.8 × 0.55 × 0.86 m.
+ * Meshes: 6.
+ */
+function createBench() {
+  const g = new THREE.Group(); g.name = 'Bench';
+  const frame = [[0.24, 0], [0.24, 0.44], [-0.16, 0.44], [-0.24, 0.86], [-0.3, 0.86], [-0.22, 0.44],
+    [-0.22, 0], [-0.16, 0], [-0.16, 0.38], [0.18, 0.38], [0.18, 0]];
+  const geo = prismGeo(frame, 0.05, 'x');
+  for (const x of [-0.75, 0.75]) addMesh(g, geo, MATERIALS.metalDark, x, 0, 0, 1);
+  for (const z of [0.12, -0.08]) addBox(g, 1.8, 0.04, 0.17, MATERIALS.timberLight, 0, 0.46, z, 1);
+  for (const [y, z] of [[0.62, -0.19], [0.8, -0.225]]) {
+    addBox(g, 1.8, 0.12, 0.03, MATERIALS.timberLight, 0, y, z, 1).rotation.x = -0.19;
+  }
+  return g;
+}
+
+/**
+ * createBin — public litter bin.
+ * Size (W × D × H): standalone 0.54 × 0.54 × 0.92 m; post 0.46 × 0.6 × 1.0 m.
+ * Params: style 'standalone' | 'post' default 'standalone'; color hex default 0x3f5a45.
+ * Meshes: 3.
+ */
+function createBin(o = {}) {
+  const p = { style: 'standalone', color: 0x3f5a45, ...o };
+  const g = new THREE.Group(); g.name = 'Bin';
+  const mat = MATERIALS.byColor(p.color, 0.6, 0.2);
+  if (p.style === 'post') {
+    addBox(g, 0.08, 1.0, 0.08, MATERIALS.metal, 0, 0.5, -0.28, 1);
+    addCyl(g, 0.23, 0.2, 0.55, 10, mat, 0, 0.62, 0, 1);
+    addCyl(g, 0.24, 0.24, 0.05, 10, MATERIALS.metalDark, 0, 0.9, 0);
+    return g;
+  }
+  addCyl(g, 0.25, 0.23, 0.8, 10, mat, 0, 0.4, 0, 1);
+  addCyl(g, 0.255, 0.255, 0.08, 10, MATERIALS.metalDark, 0, 0.72, 0);
+  addCyl(g, 0.2, 0.27, 0.12, 10, mat, 0, 0.86, 0, 1);
+  return g;
+}
+
+/**
+ * createWheelieBins — household wheelie bins put out on the kerb: tapered body, coloured lid, wheels at the back.
+ * Lid hinge and wheels are on the -Z side, so +Z faces the road as they are put out.
+ * Size (W × D × H): 1.4 × 0.75 × 1.06 m for two (0.6 × 0.75 × 1.06 for one).
+ * Params: count 1 | 2 default 2; lidColors [hex, hex] default [0x9c2a2a red rubbish, 0xd9b23a yellow recycling];
+ *         bodyColor hex default 0x2e3236.
+ * Meshes: 3 per bin.
+ */
+function createWheelieBins(o = {}) {
+  const p = { count: 2, lidColors: [0x9c2a2a, 0xd9b23a], bodyColor: 0x2e3236, ...o };
+  const g = new THREE.Group(); g.name = 'WheelieBins';
+  const body = MATERIALS.byColor(p.bodyColor, 0.8, 0, true);
+  const geo = new THREE.CylinderGeometry(Math.SQRT1_2, Math.SQRT1_2 * 0.86, 0.98, 4);
+  geo.rotateY(Math.PI / 4);
+  geo.scale(0.58, 1, 0.68);
+  const n = Math.max(1, Math.min(2, p.count));
+  for (let i = 0; i < n; i++) {
+    const x = n === 1 ? 0 : (i - 0.5) * 0.8;
+    addMesh(g, geo, body, x, 0.53, 0, 1);
+    addBox(g, 0.64, 0.05, 0.74, MATERIALS.byColor(p.lidColors[i % p.lidColors.length], 0.7), x, 1.04, 0, 1);
+    const w = new THREE.CylinderGeometry(0.1, 0.1, 0.6, 8);
+    w.rotateZ(Math.PI / 2);
+    addMesh(g, w, MATERIALS.rubber, x, 0.1, -0.28);
+  }
+  return g;
+}
+
+/**
+ * createFireHydrantMarker — small yellow concrete post marking a hydrant, blue reflector on top.
+ * Size (W × D × H): 0.12 × 0.12 × 0.64 m.
+ * Meshes: 2.
+ */
+function createFireHydrantMarker() {
+  const g = new THREE.Group(); g.name = 'FireHydrantMarker';
+  addBox(g, 0.12, 0.6, 0.12, MATERIALS.hydrantYellow, 0, 0.3, 0, 1);
+  addBox(g, 0.08, 0.04, 0.08, MATERIALS.catsEye, 0, 0.62, 0);
+  return g;
+}
+
+/**
+ * createParkedTrailer — small box trailer; the drawbar points to +Z.
+ * Origin under the centre of the box (the drawbar adds 0.95 m forward).
+ * Size (W × D × H): 1.87 × 3.35 × 0.88 m (box 1.5 × 2.4 × 0.45 m sides).
+ * Meshes: 8.
+ */
+function createParkedTrailer() {
+  const g = new THREE.Group(); g.name = 'ParkedTrailer';
+  addBox(g, 1.44, 0.05, 2.34, MATERIALS.timberLight, 0, 0.45, 0, 3);
+  for (const k of [-1, 1]) addBox(g, 0.04, 0.45, 2.4, MATERIALS.metal, k * 0.73, 0.65, 0, 1);
+  for (const k of [-1, 1]) addBox(g, 1.5, 0.45, 0.04, MATERIALS.metal, 0, 0.65, k * 1.18, 1);
+  const w = new THREE.CylinderGeometry(0.28, 0.28, 0.17, 10);
+  w.rotateZ(Math.PI / 2);
+  for (const k of [-1, 1]) addMesh(g, w, MATERIALS.rubber, k * 0.85, 0.28, -0.1, 1);
+  addBox(g, 0.08, 0.08, 1.0, MATERIALS.metal, 0, 0.42, 1.65, 1);
+  return g;
+}
+
+// ================= TRAFFIC CARS =================
+// Front +Z, left side +X, right-hand drive (driver sits on the -X side).
+// Named parts: wheelFL, wheelFR, wheelRL, wheelRR (groups, pivot at the wheel centre, spin about X,
+// rotation.order 'YXZ' so rotation.y steers and rotation.x spins); headlights, brakeLights,
+// indicatorLeft, indicatorRight (groups). Light materials are per car (not shared), also listed in
+// userData.lightMaterials { head, brake, left, right } — raise emissiveIntensity to switch them on.
+
+// Side profile with wheel arches. upper runs from the rear bottom, over the roof, to the front bottom.
+function carProfile(upper, axles, r, sill) {
+  const ra = r + 0.06, pts = upper.map(([z, y]) => [z, y]);
+  const t0 = Math.asin(Math.max(-1, Math.min(1, (sill - r) / ra)));
+  for (const az of [...axles].sort((a, b) => b - a)) {
+    for (let i = 0; i <= 6; i++) {
+      const t = t0 + (i / 6) * (Math.PI - 2 * t0);
+      pts.push([az + ra * Math.cos(t), r + ra * Math.sin(t)]);
+    }
+  }
+  return pts;
+}
+
+// Thin glass box laid along a profile segment a -> b ([z, y]), pushed 12 mm out of the body.
+function addSlopedGlass(g, a, b, width, isFront) {
+  const dz = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dz, dy);
+  let nz = dy / len, ny = -dz / len;
+  if ((isFront && nz < 0) || (!isFront && nz > 0)) { nz = -nz; ny = -ny; }
+  const m = addBox(g, width, 0.02, len - 0.04, MATERIALS.carGlass, 0,
+    (a[1] + b[1]) / 2 + ny * 0.012, (a[0] + b[0]) / 2 + nz * 0.012);
+  m.rotation.x = Math.atan2(-dy, dz);
+  return m;
+}
+
+// Shared car builder. c = car spec (see the five create functions), color = body colour.
+function buildCar(name, c, color) {
+  const g = new THREE.Group(); g.name = name;
+  const paint = MATERIALS.byColor(color, 0.42, 0.3);
+  const hw = c.W / 2, zf = c.L / 2, zr = -c.L / 2, fa = c.fz, ra = c.fz - c.wb;
+
+  addMesh(g, prismGeo(carProfile(c.upper, [fa, ra], c.r, c.sill), c.W, 'x'), paint, 0, 0, 0, 3);
+  addMesh(g, prismGeo(c.side, c.W + 0.02, 'x'), MATERIALS.carGlass, 0, 0, 0);
+  addSlopedGlass(g, c.screen[0], c.screen[1], c.W - 0.24, true);
+  addSlopedGlass(g, c.rear[0], c.rear[1], c.W - 0.3, false);
+  addBox(g, c.W + 0.02, c.bumpF[1], 0.16, MATERIALS.bumper, 0, c.bumpF[0], zf - 0.05, 1);
+  addBox(g, c.W + 0.02, c.bumpR[1], 0.16, MATERIALS.bumper, 0, c.bumpR[0], zr + 0.05, 1);
+  addBox(g, c.grille[1], c.grille[2], 0.04, MATERIALS.metalDark, 0, c.grille[0], c.grille[3]);
+  addBox(g, 0.37, 0.13, 0.02, MATERIALS.plate, 0, c.plateF, zf + 0.04);
+  addBox(g, 0.37, 0.13, 0.02, MATERIALS.plate, 0, c.plateR[0], c.plateR[1]);
+  for (const k of [-1, 1]) addBox(g, 0.1, 0.12, 0.2, paint, k * (hw + 0.06), c.mirror[1], c.mirror[0]);
+
+  const mk = (col, em) => new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, emissive: em, emissiveIntensity: 0 });
+  const mats = { head: mk(0xf2f0e6, 0xfff4dc), brake: mk(0x7c1616, 0xff2a1a), left: mk(0xd38420, 0xff9a1a), right: mk(0xd38420, 0xff9a1a) };
+  const lights = (nm, mat, list) => {
+    const grp = new THREE.Group(); grp.name = nm;
+    for (const [x, y, z, w, h] of list) addBox(grp, w, h, 0.05, mat, x, y, z);
+    g.add(grp);
+  };
+  const [hx, hy, hz, hW, hH] = c.head, [tx, ty, tz, tW, tH] = c.tail, [fx, fy, fz] = c.indF, [rx, ry, rz] = c.indR;
+  lights('headlights', mats.head, [[hx, hy, hz, hW, hH], [-hx, hy, hz, hW, hH]]);
+  lights('brakeLights', mats.brake, [[tx, ty, tz, tW, tH], [-tx, ty, tz, tW, tH]]);
+  lights('indicatorLeft', mats.left, [[fx, fy, fz, 0.1, 0.06], [rx, ry, rz, 0.1, 0.07]]);
+  lights('indicatorRight', mats.right, [[-fx, fy, fz, 0.1, 0.06], [-rx, ry, rz, 0.1, 0.07]]);
+
+  const tyre = new THREE.CylinderGeometry(c.r, c.r, 0.21, 12); tyre.rotateZ(Math.PI / 2);
+  const hub = new THREE.CylinderGeometry(c.r * 0.6, c.r * 0.6, 0.02, 8); hub.rotateZ(Math.PI / 2);
+  const wx = hw - 0.13;
+  for (const [nm, x, z] of [['wheelFL', wx, fa], ['wheelFR', -wx, fa], ['wheelRL', wx, ra], ['wheelRR', -wx, ra]]) {
+    const w = new THREE.Group(); w.name = nm; w.rotation.order = 'YXZ';
+    w.position.set(x, c.r, z);
+    addMesh(w, tyre, MATERIALS.rubber, 0, 0, 0, 1);
+    addMesh(w, hub, MATERIALS.hubcap, Math.sign(x) * 0.11, 0, 0);
+    g.add(w);
+  }
+  if (c.extras) c.extras(g, paint);
+  g.userData = { lightMaterials: mats, wheelRadius: c.r, wheelbase: c.wb, length: c.L, width: c.W };
+  return g;
+}
+
+/**
+ * createCarHatchback — small hatchback (Yaris / Mazda 2 type).
+ * Size (W × D × H): 1.75 × 4.0 × 1.5 m; wheelbase 2.55 m, wheel radius 0.31 m.
+ * Params: color hex default 0x9c2a2a.  Meshes: 27.
+ */
+function createCarHatchback(o = {}) {
+  const p = { color: 0x9c2a2a, ...o };
+  return buildCar('CarHatchback', {
+    L: 4.0, W: 1.75, r: 0.31, fz: 1.2, wb: 2.55, sill: 0.26,
+    upper: [[-2.0, 0.26], [-2.0, 0.92], [-1.93, 1.0], [-1.74, 1.44], [-1.55, 1.5], [0.35, 1.49], [1.05, 0.98],
+      [1.8, 0.86], [1.98, 0.74], [2.0, 0.42], [1.97, 0.26]],
+    side: [[[0.92, 1.02], [0.38, 1.42], [-0.15, 1.42], [-0.15, 1.02]], [[-0.25, 1.02], [-0.25, 1.42], [-1.5, 1.42], [-1.78, 1.02]]],
+    screen: [[1.02, 1.0], [0.4, 1.46]], rear: [[-1.92, 1.03], [-1.75, 1.42]],
+    bumpF: [0.4, 0.26], bumpR: [0.42, 0.28], grille: [0.6, 0.62, 0.1, 1.995],
+    plateF: 0.4, plateR: [0.68, -2.01], mirror: [0.95, 1.06],
+    head: [0.6, 0.66, 1.985, 0.34, 0.12], tail: [0.62, 0.86, -2.0, 0.22, 0.2],
+    indF: [0.8, 0.66, 1.98], indR: [0.62, 0.7, -2.0],
+  }, p.color);
+}
+
+/**
+ * createCarSedan — mid-size sedan with a defined boot (Corolla / Camry type).
+ * Size (W × D × H): 1.8 × 4.7 × 1.45 m; wheelbase 2.75 m, wheel radius 0.32 m.
+ * Params: color hex default 0xb8bcc0.  Meshes: 27.
+ */
+function createCarSedan(o = {}) {
+  const p = { color: 0xb8bcc0, ...o };
+  return buildCar('CarSedan', {
+    L: 4.7, W: 1.8, r: 0.32, fz: 1.43, wb: 2.75, sill: 0.26,
+    upper: [[-2.33, 0.26], [-2.35, 0.86], [-2.3, 0.98], [-1.55, 1.0], [-1.25, 1.06], [-0.6, 1.43], [0.35, 1.45],
+      [1.15, 1.0], [2.15, 0.84], [2.33, 0.72], [2.35, 0.42], [2.3, 0.26]],
+    side: [[[1.08, 1.03], [0.44, 1.39], [-0.1, 1.39], [-0.1, 1.03]], [[-0.2, 1.03], [-0.2, 1.39], [-0.64, 1.39], [-1.12, 1.07]]],
+    screen: [[1.12, 1.02], [0.4, 1.43]], rear: [[-1.22, 1.08], [-0.64, 1.41]],
+    bumpF: [0.42, 0.28], bumpR: [0.44, 0.28], grille: [0.6, 0.7, 0.1, 2.35],
+    plateF: 0.42, plateR: [0.7, -2.36], mirror: [1.05, 1.08],
+    head: [0.62, 0.66, 2.335, 0.4, 0.12], tail: [0.6, 0.8, -2.35, 0.36, 0.12],
+    indF: [0.84, 0.66, 2.33], indR: [0.85, 0.8, -2.35],
+  }, p.color);
+}
+
+/**
+ * createCarWagon — station wagon / soft-roader (Outback type) with roof rails.
+ * Size (W × D × H): 1.85 × 4.8 × 1.6 m; wheelbase 2.75 m, wheel radius 0.34 m.
+ * Params: color hex default 0x24364f.  Meshes: 29.
+ */
+function createCarWagon(o = {}) {
+  const p = { color: 0x24364f, ...o };
+  return buildCar('CarWagon', {
+    L: 4.8, W: 1.85, r: 0.34, fz: 1.45, wb: 2.75, sill: 0.34,
+    upper: [[-2.38, 0.34], [-2.4, 0.98], [-2.33, 1.1], [-2.18, 1.48], [-1.95, 1.53], [0.35, 1.53], [1.2, 1.08],
+      [2.15, 0.95], [2.35, 0.82], [2.4, 0.5], [2.36, 0.34]],
+    side: [[[1.1, 1.12], [0.42, 1.48], [-0.1, 1.48], [-0.1, 1.12]], [[-0.2, 1.12], [-0.2, 1.48], [-1.3, 1.48], [-1.3, 1.12]],
+      [[-1.4, 1.12], [-1.4, 1.48], [-2.08, 1.48], [-2.24, 1.12]]],
+    screen: [[1.16, 1.1], [0.4, 1.51]], rear: [[-2.32, 1.12], [-2.19, 1.46]],
+    bumpF: [0.5, 0.32], bumpR: [0.5, 0.32], grille: [0.72, 0.72, 0.12, 2.385],
+    plateF: 0.5, plateR: [0.76, -2.41], mirror: [1.1, 1.17],
+    head: [0.64, 0.75, 2.36, 0.4, 0.13], tail: [0.66, 0.9, -2.4, 0.3, 0.16],
+    indF: [0.86, 0.75, 2.355], indR: [0.86, 0.74, -2.4],
+    extras: (g) => { for (const k of [-1, 1]) addBox(g, 0.05, 0.06, 2.1, MATERIALS.bumper, k * 0.72, 1.56, -0.8); },
+  }, p.color);
+}
+
+/**
+ * createUte — double-cab ute / pickup (Hilux type): high clearance, open tray with sides and tailgate.
+ * Size (W × D × H): 1.85 × 5.3 × 1.8 m; wheelbase 3.1 m, wheel radius 0.38 m.
+ * Params: color hex default 0xf0f0ec.  Meshes: 30.
+ */
+function createUte(o = {}) {
+  const p = { color: 0xf0f0ec, ...o };
+  return buildCar('Ute', {
+    L: 5.3, W: 1.85, r: 0.38, fz: 1.75, wb: 3.1, sill: 0.5,
+    upper: [[-2.65, 0.5], [-2.65, 1.0], [-0.92, 1.0], [-0.92, 1.78], [-0.75, 1.8], [0.75, 1.8], [1.45, 1.3],
+      [2.4, 1.18], [2.6, 1.05], [2.65, 0.7], [2.6, 0.5]],
+    side: [[[1.36, 1.34], [0.8, 1.73], [0.12, 1.73], [0.12, 1.34]], [[0.02, 1.34], [0.02, 1.73], [-0.8, 1.73], [-0.8, 1.34]]],
+    screen: [[1.42, 1.32], [0.79, 1.77]], rear: [[-0.92, 1.36], [-0.92, 1.72]],
+    bumpF: [0.66, 0.3], bumpR: [0.6, 0.2], grille: [0.92, 0.9, 0.2, 2.64],
+    plateF: 0.66, plateR: [0.78, -2.66], mirror: [1.38, 1.42],
+    head: [0.62, 0.99, 2.605, 0.42, 0.14], tail: [0.86, 1.02, -2.66, 0.1, 0.34],
+    indF: [0.86, 0.99, 2.6], indR: [0.86, 0.77, -2.66],
+    extras: (g, paint) => {
+      for (const k of [-1, 1]) addBox(g, 0.06, 0.3, 1.72, paint, k * 0.895, 1.13, -1.79, 1);
+      addBox(g, 1.85, 0.3, 0.06, paint, 0, 1.13, -2.62, 1);
+    },
+  }, p.color);
+}
+
+/**
+ * createVan — van (Hiace type): short nose, tall body, solid rear sides.
+ * Size (W × D × H): 1.9 × 5.0 × 2.0 m; wheelbase 2.6 m, wheel radius 0.33 m.
+ * Params: color hex default 0xf0f0ec.  Meshes: 27.
+ */
+function createVan(o = {}) {
+  const p = { color: 0xf0f0ec, ...o };
+  return buildCar('Van', {
+    L: 5.0, W: 1.9, r: 0.33, fz: 1.45, wb: 2.6, sill: 0.34,
+    upper: [[-2.5, 0.34], [-2.5, 1.92], [-2.42, 2.0], [0.9, 2.0], [1.85, 1.2], [2.35, 1.08], [2.48, 0.92],
+      [2.5, 0.5], [2.45, 0.34]],
+    side: [[[1.72, 1.26], [0.98, 1.88], [0.45, 1.88], [0.45, 1.26]]],
+    screen: [[1.82, 1.23], [0.94, 1.97]], rear: [[-2.5, 1.25], [-2.5, 1.85]],
+    bumpF: [0.5, 0.28], bumpR: [0.48, 0.24], grille: [0.76, 0.8, 0.14, 2.505],
+    plateF: 0.5, plateR: [0.72, -2.51], mirror: [1.7, 1.4],
+    head: [0.66, 0.84, 2.49, 0.36, 0.14], tail: [0.85, 0.95, -2.5, 0.12, 0.4],
+    indF: [0.88, 0.84, 2.485], indR: [0.85, 0.68, -2.5],
+  }, p.color);
+}
+
+// ===== MODELS END =====
+
+
+// =====================================================================
+// SHOWCASE SCENE (not part of the models block)
+// =====================================================================
+// Street cross-section from the centreline: lane 0–3.5, kerb 3.5–3.65, grass berm 3.65–6.5,
+// footpath 6.5–8.0, property boundary at 8.0. Street A runs along X, street B along Z. Left-hand traffic.
+const ROAD = 3.5, KERB = 3.65, PATH_IN = 6.5, BOUND = 8.0, LEN = 200;
+const GROUND_Y = 0.12;            // berm / section ground level; the road surface is y = 0
+
+// seeded random, used only by the scene to pick model parameters
+function mulberry32(a) {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rand = mulberry32(20261014);
+const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+
+const view = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+Object.assign(labelRenderer.domElement.style, { position: 'absolute', inset: '0', pointerEvents: 'none' });
+view.appendChild(labelRenderer.domElement);
+
+const SKY = 0xcfe0ea;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 110, 380);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 900);
+camera.position.set(36, 25, 44);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.48;
+controls.minDistance = 4;
+controls.maxDistance = 260;
+
+scene.add(new THREE.HemisphereLight(0xdde8f0, 0x6f7f58, 1.15));
+const sun = new THREE.DirectionalLight(0xfff3df, 2.3);
+const SUN_OFFSET = new THREE.Vector3(45, 85, 55);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 1, far: 260 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+
+// ---------- ground, roads, kerbs, footpaths ----------
+const grassMat = new THREE.MeshStandardMaterial({ color: 0x86a063, roughness: 1 });
+const base = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), grassMat);
+base.rotation.x = -Math.PI / 2; base.position.y = -0.05; base.receiveShadow = true;
+scene.add(base);
+
+const world = new THREE.Group(); world.name = 'Streets';
+scene.add(world);
+const Q = LEN - KERB;
+for (const qx of [-1, 1]) for (const qz of [-1, 1]) {
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(Q, Q), grassMat);
+  q.rotation.x = -Math.PI / 2;
+  q.position.set(qx * (KERB + Q / 2), GROUND_Y, qz * (KERB + Q / 2));
+  q.receiveShadow = true;
+  world.add(q);
+}
+// street A (along X) full length, street B in two halves so nothing overlaps
+addBox(world, 2 * LEN, 0.1, 2 * ROAD, MATERIALS.asphalt, 0, -0.05, 0, 2);
+for (const k of [-1, 1]) addBox(world, 2 * ROAD, 0.1, LEN - ROAD, MATERIALS.asphalt, 0, -0.05, k * (ROAD + (LEN - ROAD) / 2), 2);
+const runLen = LEN - ROAD, runMid = ROAD + runLen / 2, kerbMid = (ROAD + KERB) / 2, kerbW = KERB - ROAD;
+for (const a of [-1, 1]) for (const b of [-1, 1]) {
+  addBox(world, runLen, 0.15, kerbW, MATERIALS.concrete, a * runMid, 0.075, b * kerbMid, 2);                      // A kerbs
+  addBox(world, kerbW, 0.15, LEN - KERB, MATERIALS.concrete, a * kerbMid, 0.075, b * (KERB + (LEN - KERB) / 2), 2); // B kerbs
+  const fl = LEN - KERB, fm = KERB + fl / 2, pw = BOUND - PATH_IN, pm = (PATH_IN + BOUND) / 2;
+  addBox(world, fl, 0.07, pw, MATERIALS.concrete, a * fm, 0.115, b * pm, 2);                                    // A footpaths
+  addBox(world, pw, 0.07, LEN - BOUND, MATERIALS.concrete, a * pm, 0.115, b * (BOUND + (LEN - BOUND) / 2), 2);  // B footpaths
+}
+
+// painted markings: dashed centre lines (3 m line, 7 m gap) and dashed limit lines where B gives way to A
+const paint = new THREE.MeshStandardMaterial({ color: 0xf2f1ea, roughness: 0.8 });
+const dashGeo = new THREE.BoxGeometry(1, 0.012, 1);
+const dashes = [];
+for (let d = 12; d < LEN; d += 10) for (const k of [-1, 1]) {
+  dashes.push([k * d, 0, 3, 0.12]);   // street A
+  dashes.push([0, k * d, 0.12, 3]);   // street B
+}
+for (let i = 0; i < 6; i++) {
+  const t = 0.35 + i * 0.55;
+  dashes.push([t, -ROAD - 0.45, 0.35, 0.25]);   // southbound approach (north arm)
+  dashes.push([-t, ROAD + 0.45, 0.35, 0.25]);   // northbound approach (south arm)
+}
+const dashMesh = new THREE.InstancedMesh(dashGeo, paint, dashes.length);
+const m4 = new THREE.Matrix4();
+dashes.forEach(([x, z, sx, sz], i) => {
+  m4.compose(new THREE.Vector3(x, 0.006, z), new THREE.Quaternion(), new THREE.Vector3(sx, 1, sz));
+  dashMesh.setMatrixAt(i, m4);
+});
+dashMesh.receiveShadow = true;
+world.add(dashMesh);
+
+// footprints kept clear on the berm (driveway crossings, bus stop), as [axis, side, from, to]
+const berm = [];
+const bermFree = (axis, side, pos, half = 1) =>
+  !berm.some(([a, s, lo, hi]) => a === axis && s === side && pos + half > lo && pos - half < hi) && Math.abs(pos) > BOUND + 2;
+
+// ---------- sections along the streets ----------
+const W = MATERIALS.colors.wall, R = MATERIALS.colors.roof, Dc = MATERIALS.colors.door, C = MATERIALS.colors.car;
+const wallSet = Object.values(W), roofSet = Object.values(R), doorSet = Object.values(Dc);
+const lbStyles = ['box', 'house', 'drum'];
+const lbColors = [0x9c3b32, 0x2f4560, 0xe8e4da, 0x45634a, 0x3a3d40];
+
+// street: 'An' / 'As' = north / south side of A, 'Be' / 'Bw' = east / west side of B; at = position along the street
+const plan = [
+  { street: 'An', at: -17, houseType: 'bungalow', fenceType: 'picket', trees: 2, treeKinds: ['deciduous', 'cabbage'], garage: 'garage', driveSide: 'left', bins: true },
+  { street: 'An', at: -35, houseType: 'villa', fenceType: 'hedge', trees: 3, treeKinds: ['pohutukawa', 'shrub', 'deciduous'], garage: 'carport', driveSide: 'left', trailer: true },
+  { street: 'An', at: 35, houseType: 'twoStorey', fenceType: 'paling', trees: 2, treeKinds: ['cabbage', 'conifer'], driveSide: 'right', car: 'ute' },
+  { street: 'An', at: 53, houseType: 'unitBlock', fenceType: 'none', trees: 1, treeKinds: ['deciduous'], garage: 'none', driveSide: 'right' },
+  { street: 'As', at: -35, houseType: 'bungalow', fenceType: 'hedge', trees: 2, treeKinds: ['conifer', 'shrub'], garage: 'carport', driveSide: 'right', bins: true },
+  { street: 'As', at: -17, houseType: 'twoStorey', roofType: 'mono', fenceType: 'picket', trees: 2, treeKinds: ['cabbage', 'shrub'], driveSide: 'right' },
+  { street: 'As', at: 17, houseType: 'villa', fenceType: 'picket', trees: 3, treeKinds: ['pohutukawa', 'cabbage', 'deciduous'], garage: 'garage', driveSide: 'left' },
+  { street: 'As', at: 35, houseType: 'bungalow', fenceType: 'paling', trees: 2, treeKinds: ['deciduous', 'shrub'], garage: 'garage', driveSide: 'left', car: 'wagon', bins: true },
+  { street: 'Be', at: 47, houseType: 'unitBlock', fenceType: 'picket', trees: 2, treeKinds: ['pohutukawa', 'cabbage'], garage: 'carport', driveSide: 'right' },
+  { street: 'Bw', at: -47, houseType: 'twoStorey', fenceType: 'hedge', trees: 2, treeKinds: ['deciduous', 'shrub'], driveSide: 'left' },
+];
+const placeOn = {   // position + rotation so the section's +Z faces the street
+  An: (at) => [at, -(BOUND + 15), 0], As: (at) => [at, BOUND + 15, Math.PI],
+  Be: (at) => [BOUND + 15, at, -Math.PI / 2], Bw: (at) => [-(BOUND + 15), at, Math.PI / 2],
+};
+const sections = [];
+for (const s of plan) {
+  const wall = pick(wallSet);
+  const house = { wallColor: wall, roofColor: pick(roofSet), doorColor: pick(doorSet) };
+  if (s.houseType === 'bungalow') Object.assign(house, { hasChimney: rand() > 0.35, plinth: rand() > 0.6 ? 'brick' : 'concrete', mirrored: rand() > 0.5 });
+  if (s.houseType === 'twoStorey') Object.assign(house, { roofType: s.roofType ?? 'gable', brickLower: rand() > 0.5 });
+  if (s.houseType === 'villa') house.verandaRailing = rand() > 0.3;
+  const sec = createSection({
+    houseType: s.houseType, house, fenceType: s.fenceType, trees: s.trees, treeKinds: s.treeKinds,
+    treeHeights: s.treeKinds.map((k) => (k === 'deciduous' ? 7 + rand() * 3 : k === 'shrub' ? 1.1 + rand() * 0.6 : null)),
+    clothesline: rand() > 0.35, garage: s.garage ?? 'garage', driveSide: s.driveSide,
+    letterbox: { style: pick(lbStyles), color: pick(lbColors) },
+  });
+  const [x, z, ry] = placeOn[s.street](s.at);
+  sec.position.set(x, GROUND_Y, z);
+  sec.rotation.y = ry;
+  world.add(sec);
+  sec.updateMatrixWorld(true);
+  const ud = sec.userData;
+  const gate = sec.localToWorld(new THREE.Vector3(ud.drivewayX, 0, 15));
+  const axis = s.street[0], side = s.street[1] === 'n' || s.street[1] === 'w' ? -1 : 1;
+  const along = axis === 'A' ? gate.x : gate.z;
+  berm.push([axis, side, along - 2.2, along + 2.2]);
+  // vehicle crossing over berm and footpath
+  const cw = BOUND - KERB, cm = side * (KERB + BOUND) / 2;
+  if (axis === 'A') addBox(world, 3.4, 0.07, cw, MATERIALS.concrete, along, 0.125, cm, 2);
+  else addBox(world, cw, 0.07, 3.4, MATERIALS.concrete, cm, 0.125, along, 2);
+  sections.push({ sec, plan: s, axis, side, along });
+}
+
+// ---------- corner dairy, bus stop, bench, bin ----------
+addBox(world, 18, 0.07, 18, MATERIALS.concrete, 17, 0.115, -(BOUND + 9), 2);            // shop forecourt
+addBox(world, 18, 0.07, PATH_IN - KERB, MATERIALS.concrete, 17, 0.115, -(KERB + PATH_IN) / 2, 2); // paved berm
+const shop = createCornerShop({ wallColor: W.cream, signColor: 0x2f5f8a, awningColor: R.red });
+shop.position.set(15, 0.15, -BOUND - 2.5);
+world.add(shop);
+berm.push(['A', -1, 27, 36]);
+const stop = createBusStop();
+stop.position.set(31, GROUND_Y, -5.3);
+world.add(stop);
+const bench = createBench();
+bench.position.set(27.6, GROUND_Y, -5.7);
+world.add(bench);
+const bin = createBin();
+bin.position.set(35.0, GROUND_Y, -5.4);
+world.add(bin);
+
+// ---------- street furniture on the berms ----------
+const onBerm = (obj, axis, side, along, offset, faceRoad = true) => {
+  const d = side * offset;
+  if (axis === 'A') { obj.position.set(along, GROUND_Y, d); obj.rotation.y = faceRoad ? (side > 0 ? Math.PI : 0) : 0; }
+  else { obj.position.set(d, GROUND_Y, along); obj.rotation.y = faceRoad ? (side > 0 ? -Math.PI / 2 : Math.PI / 2) : 0; }
+  world.add(obj);
+  berm.push([axis, side, along - 1, along + 1]);
+  return obj;
+};
+const freeSpot = (axis, side, at, half = 1.2) => {
+  for (let i = 0; i < 12; i++) { const p = at + (i % 2 ? -1 : 1) * Math.ceil(i / 2) * 2.5; if (bermFree(axis, side, p, half)) return p; }
+  return null;
+};
+for (const at of [-80, -50, -20, 20, 50, 80]) {
+  let p = freeSpot('A', 1, at); if (p !== null) onBerm(createStreetLight(), 'A', 1, p, KERB + 0.6);
+  p = freeSpot('B', 1, at); if (p !== null) onBerm(createStreetLight(), 'B', 1, p, KERB + 0.6);
+}
+for (const at of [-78, -38, 12, 52, 90]) { const p = freeSpot('A', -1, at); if (p !== null) onBerm(createPowerPole(), 'A', -1, p, KERB + 0.6); }
+for (const at of [-70, -30, 25, 65]) { const p = freeSpot('B', -1, at); if (p !== null) onBerm(createPowerPole(), 'B', -1, p, KERB + 0.6); }
+const bermTrees = [['A', 1, -63, 'deciduous'], ['A', 1, 30, 'cabbage'], ['A', 1, 65, 'pohutukawa'], ['A', -1, -58, 'pohutukawa'],
+  ['A', -1, 72, 'deciduous'], ['B', 1, 35, 'deciduous'], ['B', 1, 70, 'cabbage'], ['B', 1, -35, 'deciduous'],
+  ['B', -1, -58, 'cabbage'], ['B', -1, 45, 'pohutukawa']];
+for (const [axis, side, at, kind] of bermTrees) {
+  const p = freeSpot(axis, side, at, 2.5); if (p === null) continue;
+  const t = kind === 'deciduous' ? createTreeDeciduous({ height: 7 + rand() * 3, foliageColor: pick(Object.values(MATERIALS.colors.foliage)) })
+    : kind === 'cabbage' ? createCabbageTree({ height: 4.5 + rand() * 2 })
+      : createTreePohutukawa({ height: 5 + rand() * 1.5, flowering: rand() > 0.4 });
+  onBerm(t, axis, side, p, KERB + 1.45, false);
+  t.rotation.y = rand() * Math.PI * 2;
+}
+for (const [axis, side, at] of [['A', 1, -28], ['B', -1, 40], ['A', -1, 62]]) {
+  const p = freeSpot(axis, side, at, 0.4); if (p !== null) onBerm(createFireHydrantMarker(), axis, side, p, KERB + 0.3);
+}
+// rubbish day: wheelie bins at the kerb by some driveways, a trailer on one driveway
+for (const s of sections) {
+  if (s.plan.bins) {
+    const dir = s.along > 0 ? 1 : -1;
+    const wb = createWheelieBins({ count: rand() > 0.3 ? 2 : 1 });
+    onBerm(wb, s.axis, s.side, s.along + dir * 2.8, KERB + 0.55);
+  }
+  if (s.plan.trailer) {
+    const tr = createParkedTrailer();
+    tr.position.set(s.sec.userData.drivewayX, 0.06, 11.5);
+    s.sec.add(tr);
+  }
+}
+
+// ---------- cars ----------
+const carMakers = { hatch: createCarHatchback, sedan: createCarSedan, wagon: createCarWagon, ute: createUte, van: createVan };
+const traffic = [];
+const addCar = (kind, color, x, z, ry, parent = world, y = 0) => {
+  const c = carMakers[kind]({ color });
+  c.position.set(x, y, z); c.rotation.y = ry;
+  parent.add(c);
+  return c;
+};
+// driveways (nose in)
+for (const s of sections) {
+  if (!s.plan.car) continue;
+  addCar(s.plan.car, s.plan.car === 'ute' ? C.silver : C.red, s.sec.userData.drivewayX, s.sec.userData.parkZ, Math.PI, s.sec, 0.06);
+}
+// parked along the west kerb of B, facing north (their lane's direction)
+addCar('sedan', C.silver, -(ROAD - 0.95), 28, Math.PI);
+addCar('hatch', C.navy, -(ROAD - 0.95), 52, Math.PI);
+addCar('van', C.white, -(ROAD - 0.95), -32, Math.PI);
+// waiting at the give-way line on B, indicating left (west)
+const waiting = addCar('hatch', C.red, -ROAD / 2, ROAD + 0.7 + 2.0, Math.PI);
+waiting.userData.lightMaterials.brake.emissiveIntensity = 1.2;
+// moving traffic: A eastbound (lane z < 0), A westbound (z > 0), B southbound (x > 0)
+traffic.push({ car: addCar('sedan', C.darkGrey, -60, -ROAD / 2, Math.PI / 2), axis: 'x', dir: 1, speed: 12, v: 12 });
+traffic.push({ car: addCar('ute', C.white, 40, ROAD / 2, -Math.PI / 2), axis: 'x', dir: -1, speed: 11, v: 11 });
+traffic.push({ car: addCar('wagon', C.navy, ROAD / 2, -70, 0), axis: 'z', dir: 1, speed: 10, v: 10, giveWay: true });
+
+// ---------- catalogue: every model in its default form, one row per group, in brief order ----------
+const CX = 90, catalogue = new THREE.Group(); catalogue.name = 'Catalogue';
+scene.add(catalogue);
+addBox(catalogue, 108, 0.08, 64, MATERIALS.concrete, CX, 0.12, 101, 2);
+const PAD_Y = 0.16;
+const rows = [
+  [80, 5, [['createHouseBungalow', createHouseBungalow], ['createHouseVilla', createHouseVilla], ['createHouseTwoStorey', createHouseTwoStorey],
+    ['createUnitBlock', createUnitBlock], ['createCornerShop', createCornerShop], ['createGarage', createGarage],
+    ["createGarage({type:'carport'})", () => createGarage({ type: 'carport' })]]],
+  [99, 4.5, [['createTreeDeciduous', createTreeDeciduous], ['createTreePohutukawa', createTreePohutukawa],
+    ['createTreePohutukawa({flowering:true})', () => createTreePohutukawa({ flowering: true })], ['createCabbageTree', createCabbageTree],
+    ['createTreeConifer', createTreeConifer], ['createShrub', createShrub], ['createHedge', createHedge]]],
+  [112, 3.2, [['createLetterbox', createLetterbox], ["style:'house'", () => createLetterbox({ style: 'house' })],
+    ["style:'drum'", () => createLetterbox({ style: 'drum' })], ['createFence', createFence], ["type:'paling'", () => createFence({ type: 'paling' })],
+    ["type:'post'", () => createFence({ type: 'post' })], ['createStreetLight', createStreetLight], ['createPowerPole', createPowerPole],
+    ['createBusStop', createBusStop], ['createBench', createBench], ['createBin', createBin], ['createWheelieBins', createWheelieBins],
+    ['createFireHydrantMarker', createFireHydrantMarker], ['createParkedTrailer', createParkedTrailer]]],
+  [123, 3, [['createCarHatchback', createCarHatchback], ['createCarSedan', createCarSedan], ['createCarWagon', createCarWagon],
+    ['createUte', createUte], ['createVan', createVan]]],
+];
+const labels = [];
+for (const [z, gap, items] of rows) {
+  const built = items.map(([name, fn]) => {
+    const obj = fn();
+    const box = new THREE.Box3().setFromObject(obj);
+    return { name, obj, box };
+  });
+  const total = built.reduce((s, b) => s + (b.box.max.x - b.box.min.x), 0) + gap * (built.length - 1);
+  let x = CX - total / 2;
+  for (const b of built) {
+    const w = b.box.max.x - b.box.min.x;
+    b.obj.position.set(x - b.box.min.x, PAD_Y, z);
+    catalogue.add(b.obj);
+    const div = document.createElement('div');
+    div.className = 'label';
+    div.textContent = b.name;
+    const lab = new CSS2DObject(div);
+    lab.position.set(x + w / 2, PAD_Y + 0.05, z + b.box.max.z + (labels.length % 2 ? 2.1 : 0.9));
+    catalogue.add(lab);
+    labels.push(lab);
+    x += w + gap;
+  }
+}
+
+// ---------- stats ----------
+let meshCount = 0;
+scene.traverse((o) => { if (o.isMesh) meshCount++; });
+const $ = (id) => document.getElementById(id);
+$('s-meshes').textContent = meshCount.toLocaleString('en-NZ');
+
+// ---------- camera modes ----------
+const VIEWS = {
+  overview: { pos: new THREE.Vector3(36, 25, 44), target: new THREE.Vector3(0, 0, 0) },
+  catalogue: { pos: new THREE.Vector3(CX, 44, 176), target: new THREE.Vector3(CX, 0, 103) },
+};
+const HINTS = {
+  overview: 'Drag to orbit, scroll to zoom, right-drag to pan.',
+  catalogue: 'Models in brief order: houses, trees, street items, cars.',
+  driver: 'W/\u2191 accelerate \u00b7 S/\u2193 brake \u00b7 A/D or \u2190/\u2192 steer \u00b7 drag to look.',
+};
+let mode = 'overview', tween = null;
+const driver = { pos: new THREE.Vector3(-90, 1.2, -ROAD / 2 + 0.4), heading: Math.PI / 2, speed: 0, yaw: 0, pitch: 0 };
+const keys = new Set();
+
+function setMode(next) {
+  if (next === 'driver' && mode === 'driver') next = 'overview';
+  mode = next;
+  controls.enabled = mode !== 'driver';
+  if (mode === 'driver') {
+    Object.assign(driver, { heading: Math.PI / 2, speed: 0, yaw: 0, pitch: 0 });
+    driver.pos.set(-90, 1.2, -ROAD / 2 + 0.4);   // right-hand drive: seat sits toward the centreline
+  } else {
+    tween = { t: 0, fromP: camera.position.clone(), fromT: controls.target.clone(), to: VIEWS[mode] };
+  }
+  for (const [id, m] of [['b-overview', 'overview'], ['b-driver', 'driver'], ['b-catalogue', 'catalogue']]) {
+    $(id).setAttribute('aria-pressed', String(mode === m));
+  }
+  $('hint').textContent = HINTS[mode];
+  $('s-speed').hidden = $('s-speed-l').hidden = mode !== 'driver';
+}
+function toggleShadows() {
+  sun.castShadow = !sun.castShadow;
+  $('b-shadows').setAttribute('aria-pressed', String(sun.castShadow));
+}
+$('b-overview').addEventListener('click', () => setMode('overview'));
+$('b-driver').addEventListener('click', () => setMode('driver'));
+$('b-catalogue').addEventListener('click', () => setMode('catalogue'));
+$('b-shadows').addEventListener('click', toggleShadows);
+addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'v') setMode('driver');
+  else if (k === 'c') setMode('catalogue');
+  else if (k === '1') setMode('overview');
+  else if (k === 'b') toggleShadows();
+  keys.add(e.code);
+  if (mode === 'driver' && e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+
+// drag to look around in driver view
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { if (mode === 'driver') drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerup', () => { drag = null; });
+addEventListener('pointermove', (e) => {
+  if (!drag || mode !== 'driver') return;
+  driver.yaw -= (e.clientX - drag.x) * 0.004;
+  driver.pitch = THREE.MathUtils.clamp(driver.pitch - (e.clientY - drag.y) * 0.004, -0.6, 0.5);
+  drag = { x: e.clientX, y: e.clientY };
+});
+
+function updateDriver(dt) {
+  const up = keys.has('KeyW') || keys.has('ArrowUp'), down = keys.has('KeyS') || keys.has('ArrowDown');
+  const left = keys.has('KeyA') || keys.has('ArrowLeft'), right = keys.has('KeyD') || keys.has('ArrowRight');
+  const MAX = 50 / 3.6;
+  if (up) driver.speed = Math.min(MAX, driver.speed + 4 * dt);
+  else if (down) driver.speed = Math.max(-3, driver.speed - (driver.speed > 0 ? 9 : 2) * dt);
+  else driver.speed -= Math.sign(driver.speed) * Math.min(Math.abs(driver.speed), 1.5 * dt);
+  const steer = (left ? 1 : 0) - (right ? 1 : 0);
+  driver.heading += steer * 0.8 * dt * (driver.speed < -0.1 ? -1 : 1);
+  driver.pos.x += Math.sin(driver.heading) * driver.speed * dt;
+  driver.pos.z += Math.cos(driver.heading) * driver.speed * dt;
+  if (!drag) { driver.yaw *= Math.max(0, 1 - 1.5 * dt); driver.pitch *= Math.max(0, 1 - 1.5 * dt); }
+  const h = driver.heading + driver.yaw, pc = Math.cos(driver.pitch);
+  camera.position.copy(driver.pos);
+  camera.lookAt(driver.pos.x + Math.sin(h) * pc, driver.pos.y + Math.sin(driver.pitch) - 0.04, driver.pos.z + Math.cos(h) * pc);
+  $('s-speed').textContent = `${Math.round(Math.abs(driver.speed) * 3.6)} km/h`;
+}
+
+// ---------- traffic ----------
+const wheelNames = ['wheelFL', 'wheelFR', 'wheelRL', 'wheelRR'];
+for (const t of traffic) {
+  t.wheels = wheelNames.map((n) => t.car.getObjectByName(n));
+  t.car.userData.lightMaterials.head.emissiveIntensity = 0.6;   // daytime running lights
+}
+function updateTraffic(dt, time) {
+  const blink = Math.floor(time * 3) % 2 === 0 ? 2.2 : 0;
+  waiting.userData.lightMaterials.left.emissiveIntensity = blink;
+  for (const t of traffic) {
+    const p = t.car.position;
+    let target = t.speed;
+    if (t.giveWay) {
+      const stopZ = -ROAD - 0.6 - t.car.userData.length / 2, dist = stopZ - p.z;
+      const blocked = traffic.some((o) => o.axis === 'x' && ((o.car.position.x * o.dir < 0 && Math.abs(o.car.position.x) < 55) || Math.abs(o.car.position.x) < 10));
+      if (blocked && dist > -0.3 && dist < 40) target = Math.min(t.speed, Math.sqrt(2 * 3.5 * Math.max(dist, 0)));
+    }
+    const prev = t.v;
+    t.v += THREE.MathUtils.clamp(target - t.v, -7 * dt, 3 * dt);
+    t.car.userData.lightMaterials.brake.emissiveIntensity = t.v < prev - 1e-4 || t.v < 0.3 ? 1.4 : 0;
+    const d = t.v * dt * t.dir;
+    if (t.axis === 'x') { p.x += d; if (p.x * t.dir > LEN - 10) p.x = -t.dir * (LEN - 10); }
+    else { p.z += d; if (p.z * t.dir > LEN - 10) p.z = -t.dir * (LEN - 10); }
+    for (const w of t.wheels) w.rotation.x += (t.v * dt) / t.car.userData.wheelRadius;
+  }
+}
+
+// ---------- loop ----------
+const clock = new THREE.Clock();
+const focus = new THREE.Vector3();
+let frames = 0, acc = 0, time = 0;
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  time += dt;
+  updateTraffic(dt, time);
+  if (mode === 'driver') updateDriver(dt);
+  else {
+    if (tween) {
+      tween.t = Math.min(1, tween.t + dt / 0.9);
+      const e = 1 - Math.pow(1 - tween.t, 3);
+      camera.position.lerpVectors(tween.fromP, tween.to.pos, e);
+      controls.target.lerpVectors(tween.fromT, tween.to.target, e);
+      if (tween.t >= 1) tween = null;
+    }
+    controls.update();
+  }
+  // keep the shadow frustum around what the camera is looking at
+  if (mode === 'driver') focus.set(driver.pos.x + Math.sin(driver.heading) * 30, 0, driver.pos.z + Math.cos(driver.heading) * 30);
+  else focus.copy(controls.target);
+  focus.set(Math.round(focus.x), 0, Math.round(focus.z));
+  sun.target.position.copy(focus);
+  sun.position.copy(focus).add(SUN_OFFSET);
+  const showLabels = camera.position.distanceTo(VIEWS.catalogue.target) < 120 && mode !== 'driver';
+  for (const l of labels) l.visible = showLabels;
+
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+  frames++; acc += dt;
+  if (acc >= 0.5) {
+    const fps = Math.round(frames / acc);
+    $('s-fps').textContent = fps;
+    $('s-fps').classList.toggle('warn', fps < 40);
+    $('s-calls').textContent = renderer.info.render.calls.toLocaleString('en-NZ');
+    $('s-tris').textContent = renderer.info.render.triangles.toLocaleString('en-NZ');
+    frames = 0; acc = 0;
+  }
+  requestAnimationFrame(frame);
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  labelRenderer.setSize(innerWidth, innerHeight);
+});
+setMode('overview');
+tween = null;
+requestAnimationFrame(frame);
+</script>

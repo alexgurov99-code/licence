@@ -6,6 +6,7 @@ import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
 import type { Whereabouts } from '../world/locate';
 import type { RoadNetwork } from '../world/network';
+import type { Scenery } from '../world/scenery';
 
 export interface DebugInfo {
   fps: number;
@@ -105,14 +106,12 @@ export function formatLocation(where: Whereabouts): string {
   }
 }
 
-/** Junction counts and size of the town, e.g. "T 7 / cross 3 / roundabout 2 / 16 roads / 220 houses". */
-export function describeMap(network: RoadNetwork): string {
+/** Junction counts and size of the town, e.g. "T 7 / cross 3 / roundabout 2 / 16 roads / 120 houses". */
+export function describeMap(network: RoadNetwork, scenery?: Scenery): string {
   const count = (kind: string): number => network.junctions.filter((j) => j.kind === kind).length;
   const retried = network.layout.attempt > 0 ? ` (retry ${network.layout.attempt})` : '';
-  return (
-    `T ${count('tee')} / cross ${count('cross')} / roundabout ${count('roundabout')} / ` +
-    `${network.roads.length} roads / ${network.houses.length} houses${retried}`
-  );
+  const houses = scenery ? ` / ${scenery.items.filter((i) => i.kind === 'section').length} houses` : '';
+  return `T ${count('tee')} / cross ${count('cross')} / roundabout ${count('roundabout')} / ${network.roads.length} roads${houses}${retried}`;
 }
 
 /** One-line description of a control event for the debug panel. */

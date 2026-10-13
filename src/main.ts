@@ -32,6 +32,8 @@ import { VehicleMesh } from './vehicle/vehicleMesh';
 import { DebugGraph } from './world/debugGraph';
 import { locate } from './world/locate';
 import { buildNetwork, type RoadNetwork } from './world/network';
+import { placeScenery, type Scenery } from './world/scenery';
+import { DETAIL_LAYER, SceneryMesh } from './world/sceneryMesh';
 import { WorldMesh } from './world/worldMesh';
 
 const SKY_COLOR = 0xbcd6ea;
@@ -71,12 +73,14 @@ function start(container: HTMLElement): void {
   showSeedInAddress(network.seed);
   let world = new WorldMesh(network, maxAnisotropy);
   let debugGraph = new DebugGraph(network);
-  let mapSummary = describeMap(network);
-  scene.add(world.root, debugGraph.object);
-  // The test route comes from the same seed as the town.
+  // The test route comes from the same seed as the town, and so does the scenery along the roads.
   let route = buildRoute(network, planRoute(network));
   let routeMesh = new RouteMesh(route);
   scene.add(routeMesh.root, routeMesh.debug);
+  let scenery = sceneryFor(network, route);
+  let sceneryMesh = new SceneryMesh(scenery);
+  let mapSummary = describeMap(network, scenery);
+  scene.add(world.root, debugGraph.object, sceneryMesh.root);
 
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
@@ -100,6 +104,8 @@ function start(container: HTMLElement): void {
     new THREE.PerspectiveCamera(CONFIG.camera.fov, 1, CONFIG.camera.near, CONFIG.camera.far),
   );
   const firstPerson = new FirstPersonCamera(vehicleMesh.root);
+  // Small details of the scenery are drawn in the main view only, not in the mirrors.
+  for (const camera of [chaseCamera.camera, firstPerson.camera]) camera.layers.enable(DETAIL_LAYER);
   let view: CameraView = 'firstPerson';
   const applyView = (): void => {
     cluster.canvas.hidden = view === 'firstPerson';
@@ -114,7 +120,7 @@ function start(container: HTMLElement): void {
   const popups = new GlancePopups(container, { mirrors: mirrorCameras.textures, look: lookCamera.texture });
   const messages = new MessageBanner(container);
   const minimap = new Minimap(container);
-  minimap.setNetwork(network);
+  minimap.setNetwork(network, scenery);
   minimap.setRoute(route);
   addControlsHint(container);
   // After a wrong turn the satnav finds a new route; the flag, zones and map follow it.
@@ -163,17 +169,20 @@ function start(container: HTMLElement): void {
 
     if (keyboard.takePressed('toggleDebug')) debugOverlay.toggle();
     if (keyboard.takePressed('newMap') && debugOverlay.isVisible) {
-      scene.remove(world.root, debugGraph.object);
+      scene.remove(world.root, debugGraph.object, sceneryMesh.root);
       world.dispose();
       debugGraph.dispose();
+      sceneryMesh.dispose();
       network = buildNetwork(randomSeed());
       showSeedInAddress(network.seed);
       world = new WorldMesh(network, maxAnisotropy);
       debugGraph = new DebugGraph(network);
-      mapSummary = describeMap(network);
-      scene.add(world.root, debugGraph.object);
-      minimap.setNetwork(network);
       showRoute(buildRoute(network, planRoute(network)));
+      scenery = sceneryFor(network, route);
+      sceneryMesh = new SceneryMesh(scenery);
+      mapSummary = describeMap(network, scenery);
+      scene.add(world.root, debugGraph.object, sceneryMesh.root);
+      minimap.setNetwork(network, scenery);
       car = parkedAtStart();
       previousMotion = car.motion;
       tracker = createTracker(route, car.motion);
@@ -288,6 +297,12 @@ function start(container: HTMLElement): void {
       triangles: renderer.info.render.triangles,
     });
   });
+}
+
+/** Houses, trees and parked cars for the town; nothing parked along the route or by the start and finish. */
+function sceneryFor(network: RoadNetwork, route: Route): Scenery {
+  const routeRoads = new Set(route.plan.lanes.map((id) => network.lanes[id]?.roadId ?? -1));
+  return placeScenery(network, { routeRoads, keepClear: [network.start, route.finish] });
 }
 
 function createRenderer(): THREE.WebGLRenderer | null {

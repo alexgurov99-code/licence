@@ -4,6 +4,7 @@ import type { Route } from '../route/route';
 import type { RouteTracker } from '../route/tracker';
 import { dirVector } from '../world/layout';
 import type { RoadNetwork } from '../world/network';
+import type { Scenery } from '../world/scenery';
 import { add, forward, samplePath, type PathPoint, type Pose, type Vec2 } from '../world/path';
 
 // The satnav in the corner: the town from above with the route, the car and the next manoeuvre
@@ -45,6 +46,7 @@ export function toScreen(view: MapView, p: Vec2): { x: number; y: number } {
 const COLOURS = {
   background: 'rgba(28, 38, 32, 0.88)',
   road: '#8b9097',
+  block: 'rgba(150, 156, 150, 0.32)',
   island: 'rgba(28, 38, 32, 1)',
   routeDone: 'rgba(80, 160, 255, 0.35)',
   route: '#3d9bff',
@@ -65,6 +67,8 @@ export class Minimap {
   private size = 0;
   private network: RoadNetwork | null = null;
   private roads: Vec2[][] = [];
+  /** Outlines of the sections and shops, drawn as grey blocks under the roads. */
+  private blocks: (readonly Vec2[])[] = [];
   private route: Route | null = null;
   private routePoints: PathPoint[] = [];
   private iconKey = '';
@@ -97,8 +101,9 @@ export class Minimap {
     this.root.classList.toggle('large', this.large);
   }
 
-  setNetwork(network: RoadNetwork): void {
+  setNetwork(network: RoadNetwork, scenery?: Scenery): void {
     this.network = network;
+    this.blocks = (scenery?.items ?? []).filter((i) => i.kind === 'section' || i.kind === 'cornerShop').map((i) => i.footprint);
     this.roads = network.roads.map((road) => samplePath(road.centreline, 0, road.centreline.length, 3));
   }
 
@@ -161,6 +166,13 @@ export class Minimap {
   private drawRoads(ctx: CanvasRenderingContext2D): void {
     const network = this.network;
     if (!network) return;
+    ctx.fillStyle = COLOURS.block;
+    for (const block of this.blocks) {
+      ctx.beginPath();
+      polyline(ctx, block);
+      ctx.closePath();
+      ctx.fill();
+    }
     const w = this.world;
     const width = 2 * (w.laneWidth + w.shoulderWidth);
     ctx.strokeStyle = COLOURS.road;
