@@ -76,6 +76,13 @@ export interface Zone {
   side: Side | null;
 }
 
+/** A bend in the road between junctions (a bend tile): route distances and which way it goes. */
+export interface Bend {
+  from: number;
+  to: number;
+  side: Side;
+}
+
 export interface Route {
   plan: RoutePlan;
   /** The middle of the lanes along the whole route, through the junctions; it runs on to the end of the last lane. */
@@ -85,6 +92,8 @@ export interface Route {
   maneuvers: readonly Maneuver[];
   /** Ordered by where they begin. */
   zones: readonly Zone[];
+  /** Bends of the road along the route (not junctions), in order. */
+  bends: readonly Bend[];
   /** Middle of the stopping place by the kerb, facing along the road, and its route distance. */
   finish: Pose;
   finishS: number;
@@ -196,7 +205,22 @@ export function buildRoute(
 
   const maneuvers: Maneuver[] = drafts.map(({ maneuver }, index) => ({ ...maneuver, index }));
   const zones = maneuverZones(maneuvers, drafts.map((d) => d.exitSignalFrom), network, plan, laneStarts, path.length, params);
-  return { plan, path, laneStarts, maneuvers, zones, finish, finishS };
+  return { plan, path, laneStarts, maneuvers, zones, bends: routeBends(lanes, laneStarts), finish, finishS };
+}
+
+/** Lanes turn only on bend tiles: every arc in a lane is a bend of the road. */
+function routeBends(lanes: readonly Lane[], laneStarts: readonly number[]): Bend[] {
+  const bends: Bend[] = [];
+  lanes.forEach((lane, i) => {
+    let s = laneStarts[i] as number;
+    for (const piece of lane.path.pieces) {
+      if (piece.kind === 'arc' && s + piece.length > 0) {
+        bends.push({ from: Math.max(0, s), to: s + piece.length, side: piece.sweep > 0 ? 'left' : 'right' });
+      }
+      s += piece.length;
+    }
+  });
+  return bends;
 }
 
 /** NZ Road Code: at a roundabout, signal left for the first exit, right when going more than halfway round. */

@@ -41,6 +41,8 @@ export interface Habits {
   offset?: (ideal: number, ctx: DriveContext) => number;
   /** Look in the mirror just before each signal, and over the right shoulder before pulling out. */
   mirrors?: boolean;
+  /** An extra glance being held now (counted straight away). */
+  glance?: (ctx: DriveContext) => GlanceTarget | null;
   shoulder?: boolean;
   /** Stop at Stop lines. */
   stops?: boolean;
@@ -116,6 +118,8 @@ export function drive(seed: string, habits: Habits = {}, maxSeconds = 600): Driv
     if (wanted !== lever && wanted && mirrors && !parked) look('interiorMirror', time);
     if (parked && mirrors && time >= 0.5 && time < 0.6) look('interiorMirror', time);
     if (parked && shoulder && time >= 4.5 && time < 4.6) look('rightShoulder', time);
+    const extra = habits.glance?.(ctx);
+    if (extra) look(extra, time);
     lever = wanted;
 
     // Speed: a little under the limit, slow through junctions, stop at Stop lines and at the end.

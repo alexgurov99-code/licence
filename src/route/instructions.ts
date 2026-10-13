@@ -6,11 +6,11 @@ import type { RouteTracker } from './tracker';
 // What the satnav says: the next manoeuvre in words ("In 120 m turn left") and which picture to
 // show next to it. Pure logic.
 
-export type InstructionIcon = ManeuverKind | 'finish' | 'reroute';
+export type InstructionIcon = ManeuverKind | 'bend' | 'finish' | 'reroute';
 
 export interface Instruction {
   icon: InstructionIcon;
-  /** Roundabouts: which way the exit goes, and its number, for the picture. */
+  /** Roundabouts: which way the exit goes, and its number, for the picture. Bends: which way the road goes. */
   turn: Turn | null;
   exit: number | null;
   text: string;
@@ -33,6 +33,25 @@ export function currentInstruction(tracker: RouteTracker, params: MinimapParams 
   const started = index === tracker.next && tracker.nextStarted;
   const target = m.kind === 'pullOver' ? m.end : m.start;
   const away = target - tracker.progress;
+
+  // A bend of the road before the manoeuvre looks like a turn on the map: say it first.
+  const bend = started
+    ? undefined
+    : tracker.route.bends.find(
+        (b) => b.to > tracker.progress && b.from - tracker.progress < params.bendAnnounceDistance && b.to <= m.start,
+      );
+  if (bend) {
+    const toBend = bend.from - tracker.progress;
+    let text =
+      toBend <= 0
+        ? `Follow the road round to the ${bend.side}`
+        : toBend > params.nowDistance
+          ? `In ${roundDistance(toBend, params)} m the road bends ${bend.side}`
+          : `The road bends ${bend.side}`;
+    if (m.kind !== 'pullOver' && m.start - bend.to < params.thenDistance) text += `, then ${phrase(m, false)}`;
+    return { icon: 'bend', turn: bend.side, exit: null, text };
+  }
+
   let text = phrase(m, started);
   text = !started && away > params.nowDistance ? `In ${roundDistance(away, params)} m ${text}` : capitalise(text);
   const after = maneuvers[index + 1];

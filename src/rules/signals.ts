@@ -93,7 +93,8 @@ export function stepSignals(
       const forActive = !!active && (active.signal === side || (side === 'left' && !!exitZoneOf(route, active)));
       if (!forActive && candidate && candidate.signal === side) {
         if (s.mirrorBeforeSignal[candidate.index] === undefined) {
-          const windowStart = Math.max(allowedSince(candidate) ?? -Infinity, time - params.observation.mirrorMaxAgeSeconds);
+          // Any check of the right mirror shortly before, even still in the previous junction.
+          const windowStart = time - params.observation.mirrorMaxAgeSeconds;
           s.mirrorBeforeSignal[candidate.index] = mirrorChecked(snap.lastChecked, side, windowStart);
         }
         const previous = route.maneuvers[candidate.index - 1];

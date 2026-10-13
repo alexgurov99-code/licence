@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Maneuver, Route, Side } from '../route/route';
+import type { Maneuver, Route, Side, Zone } from '../route/route';
 import { stepRules } from './engine';
 import { drive, faultList, findSeed, JUNCTION_SLOW_FROM, setup, type DriveContext } from './testing';
 import { summarizeFaults, type Fault, type RulesSnapshot } from './types';
@@ -7,10 +7,12 @@ import { summarizeFaults, type Fault, type RulesSnapshot } from './types';
 const kmh = (value: number): number => value / 3.6;
 const other = (side: Side): Side => (side === 'left' ? 'right' : 'left');
 const turnAt = (kind: 'left' | 'right'): ((m: Maneuver) => boolean) => (m) => m.kind === kind;
-/** A manoeuvre after a long stretch of road (to speed or dawdle on). */
+/** A manoeuvre after a long straight stretch of road (to speed or dawdle on). */
 const afterLongRoad = (m: Maneuver, route: Route): boolean => {
   const previous = route.maneuvers[m.index - 1];
-  return !!previous && m.kind !== 'pullOver' && m.start - previous.end > 240;
+  if (!previous || m.kind === 'pullOver' || m.start - previous.end < 240) return false;
+  // Straight: no bend of the road on it.
+  return !route.bends.some((b) => b.to > previous.end && b.from < m.start);
 };
 /** On the stretch of road before manoeuvre `m`, from `from` metres after the previous one, for `length` metres. */
 const onStretch = (route: Route, m: Maneuver, ctx: DriveContext, from: number, length: number): boolean => {
@@ -111,6 +113,31 @@ describe('mirrors and the shoulder check', () => {
     for (const f of faults) expect(route.maneuvers[f.maneuver ?? -1]?.signal).not.toBeNull();
   });
 
+  it('a mirror check still in the previous junction counts, if the signal follows soon', () => {
+    const { seed, m } = findSeed((c, route) => {
+      const previous = route.maneuvers[c.index - 1];
+      const zone = route.zones.find((z) => z.kind === 'signal' && z.maneuver === c.index);
+      return !!c.signal && !!previous && previous.junctionId !== null && !!zone && zone.from - previous.end < 25;
+    });
+    const previous = setup(seed).route.maneuvers[m.index - 1] as Maneuver;
+    const { faults } = drive(seed, {
+      mirrors: false,
+      glance: (ctx) => (ctx.s > previous.end - 6 && ctx.s < previous.end - 3 ? 'interiorMirror' : null),
+    });
+    expect(faultList(faults)).not.toContain(`noMirrorCheck@${m.index}`);
+    expect(faultList(drive(seed, { mirrors: false }).faults)).toContain(`noMirrorCheck@${m.index}`);
+  });
+
+  it('the mirror on the other side does not count', () => {
+    const { seed, m } = findSeed((c) => c.kind === 'right');
+    const zone = setup(seed).route.zones.find((z) => z.kind === 'signal' && z.maneuver === m.index) as Zone;
+    const { faults } = drive(seed, {
+      mirrors: false,
+      glance: (ctx) => (ctx.s > zone.from - 8 && ctx.s < zone.from - 1 ? 'leftMirror' : null),
+    });
+    expect(faultList(faults)).toContain(`noMirrorCheck@${m.index}`);
+  });
+
   it('pulling out without the look over the right shoulder is minor', () => {
     const { faults } = drive('rules-1', { shoulder: false });
     expect(faultList(faults)).toEqual(['noShoulderCheck@0']);
@@ -192,6 +219,18 @@ describe('speed', () => {
         onStretch(ctx.route, m, ctx, 45, 30) || onStretch(ctx.route, m, ctx, 120, 30) ? kmh(m.speedLimit + 7) : ideal,
     });
     expect(faultList(faults)).toEqual(['speeding@-', 'speeding@-']);
+  });
+
+  it('slowing down for a bend of the road is fine', () => {
+    // A bend well away from any junction, so only the bend explains the slow driving.
+    const lonely = (route: Route): Route['bends'][number] | undefined =>
+      route.bends.find((b) => route.maneuvers.every((x) => x.start - b.to > 120 || b.from - x.end > 110));
+    const found = findSeed((_m, route) => !!lonely(route));
+    const bend = lonely(setup(found.seed).route) as Route['bends'][number];
+    const { faults } = drive(found.seed, {
+      speed: (ideal, ctx) => (ctx.s > bend.from - 60 && ctx.s < bend.to + 60 ? kmh(25) : ideal),
+    });
+    expect(faultList(faults)).toEqual([]);
   });
 
   it('dawdling well under the limit with no reason is minor', () => {
