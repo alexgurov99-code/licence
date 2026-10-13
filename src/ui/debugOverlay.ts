@@ -1,7 +1,10 @@
 import type { GlanceEvent, GlanceState, GlanceTarget } from '../camera/glance';
+import { CONFIG } from '../config';
 import { keyLabel } from '../input/keymap';
 import type { Maneuver, Zone } from '../route/route';
 import type { RouteEvent, RouteTracker } from '../route/tracker';
+import type { RulesState } from '../rules/engine';
+import { summarizeFaults, type Fault, type Severity } from '../rules/types';
 import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
 import type { Whereabouts } from '../world/locate';
@@ -21,6 +24,7 @@ export interface DebugInfo {
   car: CarState;
   glance: GlanceState;
   route: RouteTracker;
+  rules: RulesState;
   /** Newest last. */
   recentEvents: readonly string[];
   drawCalls: number;
@@ -84,6 +88,7 @@ export function formatDebugInfo(info: DebugInfo): string {
     `indic.   ${indicator}   hazard ${onOff(c.indicators.hazard)}`,
     ...formatGlance(info.glance, info.simTime),
     ...formatRoute(info.route),
+    ...formatRules(info.rules, info.simTime),
     `draws    ${info.drawCalls}  tris ${info.triangles}`,
     'events',
     ...info.recentEvents.map((line) => `  ${line}`),
@@ -264,4 +269,26 @@ export function describeRouteEvent(event: RouteEvent): string {
     case 'arrived':
       return 'arrived';
   }
+}
+
+const SEVERITY_NAMES: Record<Severity, string> = { immediateFail: 'IMMEDIATE FAIL', critical: 'CRITICAL', minor: 'minor' };
+
+/** The faults so far, what the rules engine is waiting on, and the latest faults. */
+export function formatRules(rules: RulesState, simTime: number, maxCriticalErrors: number = CONFIG.rules.maxCriticalErrors): string[] {
+  const summary = summarizeFaults(rules.faults, maxCriticalErrors);
+  const { signals, speed } = rules;
+  const indicator = signals.side ? `${signals.side} on ${(simTime - signals.since).toFixed(1)}s` : 'off';
+  const limit = speed.limit === null ? '-' : `${speed.limit}${speed.dropSince !== null ? ' (dropping)' : ''}`;
+  const mirrors = Object.entries(signals.mirrorBeforeSignal).map(([m, ok]) => `#${m} ${ok ? 'ok' : 'NO'}`);
+  return [
+    `rules    ${summary.passed ? 'PASS' : 'FAIL'} · fail ${summary.immediateFail} / critical ${summary.critical} / minor ${summary.minor}${rules.finished ? ' · finished' : ''}`,
+    `         indicator ${indicator} · limit ${limit} · mirror before signal ${mirrors.length > 0 ? mirrors.slice(-3).join(' ') : '-'}`,
+    ...rules.faults.slice(-3).map((f) => `  ${f.time.toFixed(1)}s ${describeFault(f)}`),
+  ];
+}
+
+/** One-line description of a fault, e.g. "CRITICAL #3: No left indicator for the left turn." */
+export function describeFault(fault: Fault): string {
+  const where = fault.maneuver === null ? '' : ` #${fault.maneuver}`;
+  return `${SEVERITY_NAMES[fault.severity]}${where}: ${fault.what}`;
 }

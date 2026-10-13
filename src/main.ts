@@ -15,8 +15,19 @@ import { planRoute } from './route/planner';
 import { buildRoute, type Route } from './route/route';
 import { RouteMesh } from './route/routeMesh';
 import { createTracker, stepTracker } from './route/tracker';
+import { createRulesState, stepRules, type RulesState } from './rules/engine';
+import { rulesSnapshot } from './rules/snapshot';
+import { summarizeFaults } from './rules/types';
 import './style.css';
-import { DebugOverlay, describeEvent, describeGlanceEvent, describeMap, describeRouteEvent } from './ui/debugOverlay';
+import {
+  DebugOverlay,
+  describeEvent,
+  describeFault,
+  describeGlanceEvent,
+  describeMap,
+  describeRouteEvent,
+} from './ui/debugOverlay';
+import { FaultFeed } from './ui/faultFeed';
 import { FpsCounter } from './ui/fpsCounter';
 import { GlancePopups } from './ui/glancePopups';
 import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
@@ -119,6 +130,7 @@ function start(container: HTMLElement): void {
   const fpsCounter = new FpsCounter(CONFIG.debug.fpsWindowSeconds);
   const popups = new GlancePopups(container, { mirrors: mirrorCameras.textures, look: lookCamera.texture });
   const messages = new MessageBanner(container);
+  const faultFeed = new FaultFeed(container);
   const minimap = new Minimap(container);
   minimap.setNetwork(network, scenery);
   minimap.setRoute(route);
@@ -153,6 +165,7 @@ function start(container: HTMLElement): void {
   let previousMotion = car.motion;
   let glance = createGlanceState();
   let tracker = createTracker(route, car.motion);
+  let rules = createRulesState();
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
@@ -186,6 +199,8 @@ function start(container: HTMLElement): void {
       car = parkedAtStart();
       previousMotion = car.motion;
       tracker = createTracker(route, car.motion);
+      rules = createRulesState();
+      faultFeed.clear();
       pendingCommands = [];
       chaseCamera.snapTo(car.motion);
       recentEvents.push(`${simTime.toFixed(1)}s  new map, seed ${network.seed}`);
@@ -218,8 +233,6 @@ function start(container: HTMLElement): void {
         if (event.type === 'rerouted') {
           showRoute(event.route);
           messages.show('New route: follow the map');
-        } else if (event.type === 'arrived') {
-          messages.show('Route complete', 2 * CONFIG.ui.messageSeconds);
         }
       }
       const glanceResult = stepGlance(glance, readGlanceKeys(keyboard), simTime, step, CONFIG.glance);
@@ -227,6 +240,16 @@ function start(container: HTMLElement): void {
       for (const event of glanceResult.events) {
         const text = describeGlanceEvent(event);
         if (text) recentEvents.push(`${simTime.toFixed(1)}s  ${text}`);
+      }
+      // The rules engine judges this step: the car, the glances and where it is on the route and the road.
+      const where = locate(network, car.motion, car.motion.heading);
+      const rulesResult = stepRules(rules, rulesSnapshot(simTime, car, glance, tracker, where), routeResult.events);
+      const justFinished = rulesResult.state.finished && !rules.finished;
+      rules = rulesResult.state;
+      if (justFinished) messages.show(`Route complete: ${resultLine(rules.faults)}`, 3 * CONFIG.ui.messageSeconds);
+      for (const fault of rulesResult.faults) {
+        recentEvents.push(`${simTime.toFixed(1)}s  ${describeFault(fault)}`);
+        faultFeed.show(fault);
       }
       accumulator -= step;
       steps += 1;
@@ -249,6 +272,7 @@ function start(container: HTMLElement): void {
     const hint = stuckHint(car);
     if (hint) messages.show(hint);
     messages.update(frameSeconds);
+    faultFeed.update(frameSeconds);
 
     if (view === 'chase') chaseCamera.update(pose, frameSeconds);
     sun.position.set(pose.x + 20, 40, pose.z + 10);
@@ -292,11 +316,23 @@ function start(container: HTMLElement): void {
       car,
       glance,
       route: tracker,
+      rules,
       recentEvents,
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
     });
   });
+}
+
+/** "PASSED (1 critical, 3 minor)": the full results screen comes in stage 7. */
+function resultLine(faults: RulesState['faults']): string {
+  const summary = summarizeFaults(faults, CONFIG.rules.maxCriticalErrors);
+  const counts = [
+    summary.immediateFail > 0 ? `${summary.immediateFail} immediate fail` : '',
+    `${summary.critical} critical`,
+    `${summary.minor} minor`,
+  ].filter((text) => text !== '');
+  return `${summary.passed ? 'PASSED' : 'FAILED'} (${counts.join(', ')})`;
 }
 
 /** Houses, trees and parked cars for the town; nothing parked along the route or by the start and finish. */

@@ -330,6 +330,71 @@ export const CONFIG = {
     },
   },
 
+  /**
+   * The rules engine. Three levels of fault, as on the NZ restricted test: an immediate failure
+   * ends the test, critical errors are allowed up to a limit, minor ones are only advice.
+   */
+  rules: {
+    /** NZ restricted test: failed by any immediate failure error or by more than this many critical errors. */
+    maxCriticalErrors: 2,
+    signal: {
+      /** Reaction time allowed on the 3-second rule (CONFIG.route.minSignalSeconds). */
+      lateToleranceSeconds: 0.3,
+      /** Indicating more than this far before the previous manoeuvre is over is too early. */
+      earlyToleranceDistance: 5,
+      /** Leaving a roundabout: the left indicator must be on by this share of the way from passing the exit before to leaving. */
+      exitSignalShare: 0.6,
+      /** The indicator must be off once the middle of the car is this far past the "indicator off" line. */
+      cancelGraceDistance: 3,
+    },
+    observation: {
+      /** A mirror check counts for a signal given within this many seconds after it. */
+      mirrorMaxAgeSeconds: 10,
+      /** Pulling out: the look over the right shoulder must be this recent when the car moves off. */
+      shoulderMaxAgeSeconds: 5,
+    },
+    junction: {
+      /** Stop sign: the car must stop (front of the car) within this distance before the line... */
+      stopWindow: 10,
+      /** ...slower than this counts as stopped (km/h)... */
+      stopSpeedKmh: 1,
+      /** ...and if its slowest there was below this, it was a rolling stop (critical), otherwise it did not stop (immediate failure). */
+      rollingStopKmh: 10,
+      /** Give Way (no traffic yet): slow to this speed (km/h) within this distance before the line, to look both ways. */
+      giveWayKmh: 20,
+      giveWayWindow: 20,
+    },
+    speed: {
+      /** km/h over the limit: minor if it lasts minorOverSeconds; NZ test: 5 over is a critical error... */
+      minorOverKmh: 2,
+      minorOverSeconds: 3,
+      criticalOverKmh: 5,
+      /** ...and 10 over at any time, or 5 over for 5 seconds or more, an immediate failure. */
+      immediateOverKmh: 10,
+      immediateOverSeconds: 5,
+      /** When the limit drops after a junction the old one still applies this long: the sign stands a few metres in. */
+      limitDropGraceSeconds: 2,
+      /** NZ test: 10 km/h under the limit with no reason is too slow; it counts after this many seconds. */
+      tooSlowUnderKmh: 10,
+      tooSlowSeconds: 8,
+      /** Driving slowly is expected this close before a manoeuvre and after one. */
+      slowBeforeManeuver: 50,
+      slowAfterManeuver: 40,
+    },
+    position: {
+      /** The middle of the car further right than this of the middle of its lane, for keepLeftSeconds: keep left. */
+      keepLeftOffset: 0.6,
+      keepLeftSeconds: 3,
+      /** The right side of the car this far over the centre line for centreLineSeconds: crossed the centre line. */
+      centreLineTolerance: 0.2,
+      centreLineSeconds: 1,
+      /** The middle of the car over the centre line this long: driving on the wrong side of the road. */
+      wrongSideSeconds: 0.5,
+      /** Turning at a T or crossroads: further than this from the route line towards the inside of the turn cuts the corner. */
+      cutCornerOffset: 1.5,
+    },
+  },
+
   audio: {
     /** Loudness of the indicator relay click, 0..1. */
     indicatorVolume: 0.8,
@@ -338,6 +403,9 @@ export const CONFIG = {
   ui: {
     /** How long a hint message stays on screen. */
     messageSeconds: 3,
+    /** Each fault shows on screen this long; at most this many at once. */
+    faultSeconds: 6,
+    faultsShown: 4,
     /** Windows that pop up while a look key is held. Sizes are shares of the screen width. */
     popups: {
       interiorMirrorWidth: 0.42,
@@ -402,3 +470,4 @@ export type PopupParams = NumberFields<typeof CONFIG.ui.popups>;
 export type WorldParams = Widen<typeof CONFIG.world>;
 export type RouteParams = Widen<typeof CONFIG.route>;
 export type MinimapParams = NumberFields<typeof CONFIG.minimap>;
+export type RulesParams = Widen<typeof CONFIG.rules>;
