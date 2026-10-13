@@ -4,6 +4,7 @@ import { planRoute } from '../route/planner';
 import { buildRoute, kerbOffset, type Maneuver, type Route, type Side } from '../route/route';
 import { createTracker, stepTracker, type RouteEvent, type RouteTracker } from '../route/tracker';
 import { createCar } from '../vehicle/car';
+import { COCKPIT_READY, type CockpitReadiness } from '../vehicle/cockpitTypes';
 import { INDICATORS_OFF } from '../vehicle/indicators';
 import { locate } from '../world/locate';
 import { buildNetwork, type RoadNetwork } from '../world/network';
@@ -48,6 +49,14 @@ export interface Habits {
   onStep?: (snap: RulesSnapshot, rules: RulesState, events: readonly RouteEvent[]) => void;
   /** Stop at Stop lines. */
   stops?: boolean;
+  /** Cockpit drill: which parts are adjusted (default all), the belt and adjusting at a given time. */
+  cockpit?: CockpitReadiness;
+  belt?: (time: number) => boolean;
+  adjusting?: (time: number) => boolean;
+  /** The engine goes on at this time (default at once). */
+  engineOnAt?: number;
+  /** Handbrake and P once parked at the end (default true). */
+  park?: boolean;
 }
 
 export interface DriveResult {
@@ -107,8 +116,25 @@ export function drive(seed: string, habits: Habits = {}, maxSeconds = 600): Driv
   const route = tracker.route;
   const pullOut = route.maneuvers[0]?.kind === 'pullOut';
 
-  while (time < maxSeconds && !tracker.arrived) {
+  const park = habits.park ?? true;
+  const engineOnAt = habits.engineOnAt ?? 0;
+  let arrivedAt: number | null = null;
+  let lastPose = { x: network.start.x, z: network.start.z, heading: network.start.heading };
+  // After arriving the driver secures the car a second later; the drive is over once the rules say so.
+  while (time < maxSeconds && !rules.finished) {
     time += DT;
+    if (tracker.arrived) {
+      arrivedAt ??= time;
+      const secured = park && time - arrivedAt > 1;
+      const parkedCar = createCar({
+        motion: { ...lastPose, speed: 0 },
+        controls: { engineOn: true, beltFastened: true, gear: secured ? 'P' : 'D', handbrake: secured },
+      });
+      const snap = rulesSnapshot(time, parkedCar, glance, tracker, locate(network, parkedCar.motion, parkedCar.motion.heading));
+      rules = stepRules(rules, snap, []).state;
+      habits.onStep?.(snap, rules, []);
+      continue;
+    }
     const m = route.maneuvers.find((candidate) => candidate.end > s || candidate.kind === 'pullOver') as Maneuver;
     const ctx: DriveContext = { s, m, route };
 
@@ -151,19 +177,23 @@ export function drive(seed: string, habits: Habits = {}, maxSeconds = 600): Driv
     s = Math.min(s + speed * DT, route.finishS);
     const p = pointAt(tracker.route.path, Math.min(s, tracker.route.path.length));
     const pose = { ...add(p, leftOf(p.heading), offset), heading: p.heading };
+    lastPose = pose;
     const car = createCar({
       motion: { x: pose.x, z: pose.z, heading: pose.heading, speed },
       controls: {
         indicators: { ...INDICATORS_OFF, lever },
-        engineOn: true,
-        beltFastened: true,
+        engineOn: time >= engineOnAt,
+        beltFastened: habits.belt ? habits.belt(time) : true,
         gear: parked ? 'P' : 'D',
         handbrake: parked,
       },
     });
     const step = stepTracker(tracker, { ...pose, speed }, DT, network);
     tracker = step.tracker;
-    const snap = rulesSnapshot(time, car, glance, tracker, locate(network, pose, pose.heading));
+    const snap = rulesSnapshot(time, car, glance, tracker, locate(network, pose, pose.heading), {
+      readiness: habits.cockpit ?? COCKPIT_READY,
+      adjusting: habits.adjusting?.(time) ?? false,
+    });
     rules = stepRules(rules, snap, step.events).state;
     habits.onStep?.(snap, rules, step.events);
   }

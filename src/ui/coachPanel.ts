@@ -59,6 +59,10 @@ function stepText(step: CoachStep, m: Maneuver): string {
   const k = keyLabel;
   const sideMirror = step.side === 'left' ? k('lookLeft') : k('lookRight');
   switch (step.kind) {
+    case 'seat':
+      return `Seat: ${k('adjust')}, then arrows`;
+    case 'adjustMirrors':
+      return `Mirrors: ${k('adjust')} to the next, arrows`;
     case 'belt':
       return `Belt ${k('belt')}`;
     case 'engine':

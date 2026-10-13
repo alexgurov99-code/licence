@@ -50,6 +50,24 @@ describe('learner mode', () => {
     expect(seen).toEqual(['mirror', 'signal', 'shoulder', 'moveOff', 'none']);
   });
 
+  it('the cockpit drill comes first: seat, mirrors, belt, engine', () => {
+    const seen: string[] = [];
+    const coachAt = coaching();
+    drive('rules-1', {
+      cockpit: { seat: false, interior: false, left: true, right: true },
+      belt: (time) => time > 0.3,
+      engineOnAt: 0.4,
+      onStep: (snap, rules) => {
+        if (snap.time > 0.5) return;
+        const steps = coachAt(snap, rules)?.steps ?? [];
+        const now = steps.find((s) => s.state === 'now')?.kind ?? 'none';
+        if (seen.at(-1) !== now) seen.push(now);
+        expect(steps.slice(0, 4).map((s) => s.kind)).toEqual(['seat', 'adjustMirrors', 'belt', 'engine']);
+      },
+    });
+    expect(seen[0]).toBe('seat');
+  });
+
   it('names a manoeuvre far ahead without its steps, and shows them once the car is close', () => {
     const { seed, m } = findSeed((c, route) => {
       const previous = route.maneuvers[c.index - 1];

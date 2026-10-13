@@ -1,5 +1,6 @@
 import type { GlanceTarget } from '../camera/glance';
 import type { Route, Side } from '../route/route';
+import type { CockpitReadiness } from '../vehicle/cockpitTypes';
 import type { Gear } from '../vehicle/gearbox';
 import type { RoadPlace } from '../world/locate';
 import type { Vec2 } from '../world/path';
@@ -34,7 +35,13 @@ export type FaultKind =
   | 'keepLeft'
   | 'centreLine'
   | 'wrongSide'
-  | 'cutCorner';
+  | 'cutCorner'
+  | 'noBelt'
+  | 'seatNotAdjusted'
+  | 'mirrorsNotAdjusted'
+  | 'adjustedWhileMoving'
+  | 'drillOrder'
+  | 'notSecured';
 
 export interface Fault {
   id: number;
@@ -75,6 +82,9 @@ export interface RulesSnapshot {
   handbrake: boolean;
   engineOn: boolean;
   beltFastened: boolean;
+  /** Cockpit drill: which of the seat and the mirrors are adjusted, and whether the driver is adjusting one now. */
+  cockpit: CockpitReadiness;
+  adjusting: boolean;
   /** The indicator that is signalling a turn: hazard lights are not a signal. */
   indicator: Side | null;
   /** When each mirror and shoulder check was last being done (see camera/glance). */

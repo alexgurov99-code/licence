@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { COCKPIT_READY } from '../vehicle/cockpitTypes';
 import { CONFIG } from '../config';
 import { createSpeedState, stepSpeed, type SpeedState } from './speed';
 import { setup } from './testing';
@@ -18,6 +19,8 @@ function snap(time: number, kmh: number, limit: number | null): RulesSnapshot {
     handbrake: false,
     engineOn: true,
     beltFastened: true,
+    cockpit: COCKPIT_READY,
+    adjusting: false,
     indicator: null,
     lastChecked: { interiorMirror: null, leftMirror: null, rightMirror: null, back: null, leftShoulder: null, rightShoulder: null },
     route,

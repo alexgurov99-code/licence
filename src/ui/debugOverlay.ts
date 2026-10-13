@@ -25,6 +25,8 @@ export interface DebugInfo {
   glance: GlanceState;
   route: RouteTracker;
   rules: RulesState;
+  /** Seat and mirror adjustment (see ui/adjustPanel describeCockpit). */
+  cockpit: string;
   /** Newest last. */
   recentEvents: readonly string[];
   drawCalls: number;
@@ -86,6 +88,7 @@ export function formatDebugInfo(info: DebugInfo): string {
     `gear     ${c.gear}   engine ${onOff(c.engineOn)}`,
     `handbr.  ${onOff(c.handbrake)}   belt ${c.beltFastened ? 'fastened' : 'off'}`,
     `indic.   ${indicator}   hazard ${onOff(c.indicators.hazard)}`,
+    `cockpit  ${info.cockpit}`,
     ...formatGlance(info.glance, info.simTime),
     ...formatRoute(info.route),
     ...formatRules(info.rules, info.simTime),

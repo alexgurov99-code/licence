@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { COCKPIT_READY } from '../vehicle/cockpitTypes';
 import type { Maneuver, Route, Side, Zone } from '../route/route';
 import { stepRules } from './engine';
 import { drive, faultList, findSeed, JUNCTION_SLOW_FROM, setup, type DriveContext } from './testing';
@@ -26,6 +27,7 @@ describe('the model driver', () => {
       const result = drive(seed);
       expect(result.tracker.arrived).toBe(true);
       expect(result.tracker.reroutes).toBe(0);
+      expect(result.rules.finished).toBe(true);
       expect(faultList(result.faults)).toEqual([]);
     });
   }
@@ -305,6 +307,8 @@ describe('results', () => {
       handbrake: false,
       engineOn: true,
       beltFastened: true,
+    cockpit: COCKPIT_READY,
+    adjusting: false,
       indicator: null,
       lastChecked: { interiorMirror: null, leftMirror: null, rightMirror: null, back: null, leftShoulder: null, rightShoulder: null },
       route: other,

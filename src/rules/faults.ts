@@ -1,4 +1,5 @@
 import type { Maneuver, Side } from '../route/route';
+import type { MirrorName } from '../vehicle/cockpitTypes';
 import type { FaultDraft } from './types';
 
 // What each fault says: what happened and how it would have been right. Shown on screen during
@@ -229,5 +230,69 @@ export function cutCorner(m: Maneuver): FaultDraft {
       m.kind === 'right'
         ? 'Turning right, go round the middle of the junction and into the left lane of the new road.'
         : 'Turning left, follow the kerb round the corner instead of cutting across.',
+  };
+}
+
+const MIRROR_NAMES: Record<MirrorName, string> = { interior: 'rear-view', left: 'left', right: 'right' };
+
+export function noBelt(): FaultDraft {
+  return {
+    kind: 'noBelt',
+    severity: 'critical',
+    maneuver: null,
+    what: 'Drove without the seat belt fastened.',
+    correct: 'Fasten the seat belt before starting the engine.',
+  };
+}
+
+export function seatNotAdjusted(): FaultDraft {
+  return {
+    kind: 'seatNotAdjusted',
+    severity: 'minor',
+    maneuver: null,
+    what: 'Moved off without adjusting the seat.',
+    correct: 'Adjust the seat before the drive, while the car is parked.',
+  };
+}
+
+export function mirrorsNotAdjusted(mirrors: readonly MirrorName[]): FaultDraft {
+  const names = mirrors.map((id) => MIRROR_NAMES[id]);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+  return {
+    kind: 'mirrorsNotAdjusted',
+    severity: 'minor',
+    maneuver: null,
+    what: `Moved off with the ${list} mirror${names.length > 1 ? 's' : ''} not adjusted.`,
+    correct: 'Adjust all three mirrors after the seat, before starting the engine.',
+  };
+}
+
+export function adjustedWhileMoving(): FaultDraft {
+  return {
+    kind: 'adjustedWhileMoving',
+    severity: 'minor',
+    maneuver: null,
+    what: 'Adjusted the seat or a mirror while driving.',
+    correct: 'Adjust the seat and mirrors only while the car is parked.',
+  };
+}
+
+export function drillOrder(): FaultDraft {
+  return {
+    kind: 'drillOrder',
+    severity: 'minor',
+    maneuver: null,
+    what: 'Started the engine before the cockpit drill was done.',
+    correct: 'Seat, mirrors and seat belt first, then start the engine.',
+  };
+}
+
+export function notSecured(m: Maneuver): FaultDraft {
+  return {
+    kind: 'notSecured',
+    severity: 'minor',
+    maneuver: m.index,
+    what: 'Did not secure the car after pulling over.',
+    correct: 'Once stopped at the kerb, apply the handbrake and select P.',
   };
 }

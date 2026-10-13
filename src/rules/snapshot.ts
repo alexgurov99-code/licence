@@ -1,6 +1,7 @@
 import type { GlanceState } from '../camera/glance';
 import type { RouteTracker } from '../route/tracker';
 import type { CarState } from '../vehicle/car';
+import { COCKPIT_READY, type CockpitReadiness } from '../vehicle/cockpitTypes';
 import type { Whereabouts } from '../world/locate';
 import type { RulesSnapshot } from './types';
 
@@ -13,6 +14,7 @@ export function rulesSnapshot(
   glance: GlanceState,
   tracker: RouteTracker,
   where: Whereabouts,
+  cockpit: { readiness: CockpitReadiness; adjusting: boolean } = { readiness: COCKPIT_READY, adjusting: false },
 ): RulesSnapshot {
   const { motion, controls } = car;
   const { indicators } = controls;
@@ -24,6 +26,8 @@ export function rulesSnapshot(
     handbrake: controls.handbrake,
     engineOn: controls.engineOn,
     beltFastened: controls.beltFastened,
+    cockpit: cockpit.readiness,
+    adjusting: cockpit.adjusting,
     // With the hazard lights on, both sides flash: that is not a signal to turn.
     indicator: indicators.hazard ? null : indicators.lever,
     lastChecked: glance.lastChecked,
