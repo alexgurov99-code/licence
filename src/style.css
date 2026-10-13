@@ -269,3 +269,16 @@ body {
   font-weight: 600;
   color: #ff8a7a;
 }
+
+/* No steps yet: just the next manoeuvre (or the bend before it), dim and small. */
+.coach-panel.quiet {
+  padding: 5px 10px;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.coach-panel.quiet .coach-title {
+  margin-bottom: 0;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.85;
+}

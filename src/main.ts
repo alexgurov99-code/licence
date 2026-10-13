@@ -27,7 +27,7 @@ import {
   describeMap,
   describeRouteEvent,
 } from './ui/debugOverlay';
-import { coach } from './rules/coach';
+import { coach, createCoachState } from './rules/coach';
 import { CoachPanel } from './ui/coachPanel';
 import { FaultFeed } from './ui/faultFeed';
 import { FpsCounter } from './ui/fpsCounter';
@@ -172,6 +172,7 @@ function start(container: HTMLElement): void {
   let tracker = createTracker(route, car.motion);
   let rules = createRulesState();
   let lastSnapshot: RulesSnapshot | null = null;
+  let coachState = createCoachState();
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
@@ -207,6 +208,7 @@ function start(container: HTMLElement): void {
       tracker = createTracker(route, car.motion);
       rules = createRulesState();
       lastSnapshot = null;
+      coachState = createCoachState();
       faultFeed.clear();
       pendingCommands = [];
       chaseCamera.snapTo(car.motion);
@@ -294,7 +296,13 @@ function start(container: HTMLElement): void {
 
     popups.update(view, glance, frameSeconds);
     minimap.update(pose, tracker, currentInstruction(tracker));
-    coachPanel.update(learner && lastSnapshot ? coach(lastSnapshot, rules) : null);
+    if (lastSnapshot) {
+      const coached = coach(lastSnapshot, rules, coachState);
+      coachState = coached.state;
+      coachPanel.update(learner ? coached.coaching : null);
+    } else {
+      coachPanel.update(null);
+    }
 
     renderer.info.reset();
     // Shadows are worked out once, in the first pass, and reused by the other passes of the frame.

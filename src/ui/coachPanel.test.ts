@@ -22,6 +22,8 @@ describe('learner mode panel text', () => {
     const text = coachText({
       maneuver: turn,
       distance: 234,
+      phase: 'steps',
+      bend: null,
       steps: [
         { kind: 'mirror', state: 'done', side: 'right' },
         { kind: 'signal', state: 'now', side: 'right', seconds: 1.42, needSeconds: 3 },
@@ -46,6 +48,8 @@ describe('learner mode panel text', () => {
     const text = coachText({
       maneuver: { ...turn, index: 0, kind: 'pullOut', junctionId: null, control: 'none' },
       distance: null,
+      phase: 'steps',
+      bend: null,
       steps: [
         { kind: 'engine', state: 'now' },
         { kind: 'shoulder', state: 'todo', side: 'right' },
@@ -55,5 +59,19 @@ describe('learner mode panel text', () => {
     });
     expect(text.title).toBe('Pull out from the kerb');
     expect(text.steps.map((s) => s.text)).toEqual(['Engine: hold S, press Enter', 'Right shoulder ↓+→', 'D 4, handbrake off Space, go']);
+  });
+});
+
+describe('learner mode panel before the steps', () => {
+  const base = { maneuver: turn, distance: 152, steps: [], warnings: [] };
+
+  it('names the next manoeuvre quietly while it is a way off', () => {
+    expect(coachText({ ...base, phase: 'ahead', bend: null })).toMatchObject({ title: 'Next: Turn right (Give Way) · 150 m', quiet: true, steps: [] });
+  });
+
+  it('says to just follow a bend of the road first', () => {
+    expect(coachText({ ...base, phase: 'bend', bend: 'left' }).title).toBe(
+      'The road bends left: just follow it, no signal. Then: Turn right (Give Way) · 150 m',
+    );
   });
 });
