@@ -46,8 +46,9 @@ export function shiftRefusal(
  * Acceleration the engine gives the car along its heading (m/s², signed), before brakes and resistance.
  *
  * - Engine off, P or N: nothing.
- * - D / R with the accelerator released: the idling engine "creeps" the car up to creep speed
- *   and gently holds it back (engine braking) above that.
+ * - D / R with the accelerator released: no push, so a car standing still stays put (no "creep":
+ *   it only moves on the accelerator); a moving car is gently held back (engine braking), fading
+ *   out as it comes to a stop.
  * - Accelerator pressed: blends from idle towards full power, which fades out at top speed.
  */
 export function driveAcceleration(
@@ -65,13 +66,7 @@ export function driveAcceleration(
   const v = speed * direction;
 
   const power = params.acceleration * Math.max(0, 1 - (Math.max(0, v) / topSpeed) ** 2);
-  // At exactly creep speed the idle push equals rolling resistance, so the car settles at creepSpeed.
-  const maxIdle = params.rollingDeceleration + params.creepAcceleration;
-  const idle = clamp(
-    params.rollingDeceleration + params.creepAcceleration * (1 - v / params.creepSpeed),
-    -params.engineBraking,
-    maxIdle,
-  );
+  const idle = v > 0 ? -params.engineBraking * Math.min(1, v / params.engineBrakingFadeSpeed) : 0;
 
   const t = clamp(throttle, 0, 1);
   return direction * (t * power + (1 - t) * idle);

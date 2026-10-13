@@ -51,9 +51,9 @@ describe('driveAcceleration', () => {
     expect(driveAcceleration('R', true, 1, 0)).toBeCloseTo(-params.acceleration, 9);
   });
 
-  it('creeps from a standstill without the accelerator', () => {
-    expect(driveAcceleration('D', true, 0, 0)).toBeGreaterThan(params.rollingDeceleration);
-    expect(driveAcceleration('R', true, 0, 0)).toBeLessThan(-params.rollingDeceleration);
+  it('does not push a car standing still without the accelerator (no creep)', () => {
+    expect(Math.abs(driveAcceleration('D', true, 0, 0))).toBe(0);
+    expect(Math.abs(driveAcceleration('R', true, 0, 0))).toBe(0);
   });
 
   it('brakes gently with the engine above walking pace when the accelerator is released', () => {

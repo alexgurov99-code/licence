@@ -71,7 +71,7 @@ export function formatDebugInfo(info: DebugInfo): string {
   const headingDeg = (((v.heading * 180) / Math.PI) + 360) % 360;
   const percent = (value: number): string => `${(value * 100).toFixed(0)}%`;
   const onOff = (value: boolean): string => (value ? 'on' : 'off');
-  const indicator = c.indicators.lever ? `${c.indicators.lever}${c.indicators.armed ? ' (armed)' : ''}` : 'off';
+  const indicator = c.indicators.lever ?? 'off';
   return [
     `FPS      ${info.fps.toFixed(0)}`,
     `seed     ${info.seed ?? '-'}   (${keyLabel('newMap')}: new map)`,
@@ -145,7 +145,7 @@ export function describeEvent(event: ControlEvent): string {
     case 'indicatorOn':
       return `indicator ${event.side} on`;
     case 'indicatorOff':
-      return `indicator ${event.side} off (${event.auto ? 'auto-cancelled' : 'manual'})`;
+      return `indicator ${event.side} off`;
     case 'hazardOn':
       return 'hazards on';
     case 'hazardOff':

@@ -31,7 +31,7 @@ class Driver {
 }
 
 describe('a full start from the kerb', () => {
-  it('belt, engine, D, handbrake off, then the car creeps away when the brake is released', () => {
+  it('belt, engine, D, handbrake off: the car waits for the accelerator, then drives off', () => {
     const driver = new Driver().getReady();
     expect(driver.car.motion.speed).toBe(0);
     expect(driver.events.map((e) => e.type)).toEqual([
@@ -42,8 +42,10 @@ describe('a full start from the kerb', () => {
     ]);
 
     driver.do(6);
-    expect(driver.car.motion.speed).toBeCloseTo(CONFIG.vehicle.creepSpeed, 1);
-    expect(driver.car.motion.z).toBeGreaterThan(5);
+    expect(driver.car.motion.speed).toBe(0);
+    driver.do(2, { throttle: true });
+    expect(driver.car.motion.speed).toBeGreaterThan(3);
+    expect(driver.car.motion.z).toBeGreaterThan(2);
   });
 
   it('does not move when the accelerator is pressed in P', () => {
@@ -80,16 +82,18 @@ describe('a full start from the kerb', () => {
 });
 
 describe('indicators while driving', () => {
-  it('switch off by themselves after a left turn', () => {
+  it('stay on after a turn until switched off by hand', () => {
     const driver = new Driver()
       .getReady()
-      .do(3)
+      .do(2, { throttle: true })
       .do(0.1, {}, [{ type: 'indicator', side: 'left' }])
       .do(3, { steerLeft: true })
       .do(2);
     expect(driver.car.motion.heading).toBeGreaterThan(Math.PI / 4);
+    expect(driver.car.controls.indicators.lever).toBe('left');
+    driver.do(0.1, {}, [{ type: 'indicator', side: 'left' }]);
     expect(driver.car.controls.indicators.lever).toBeNull();
-    expect(driver.events).toContainEqual({ type: 'indicatorOff', side: 'left', auto: true });
+    expect(driver.events).toContainEqual({ type: 'indicatorOff', side: 'left' });
   });
 
   it('stay on after a gentle lane change and need switching off by hand', () => {
@@ -105,6 +109,6 @@ describe('indicators while driving', () => {
 
     driver.do(0.1, {}, [{ type: 'indicator', side: 'right' }]);
     expect(driver.car.controls.indicators.lever).toBeNull();
-    expect(driver.events).toContainEqual({ type: 'indicatorOff', side: 'right', auto: false });
+    expect(driver.events).toContainEqual({ type: 'indicatorOff', side: 'right' });
   });
 });

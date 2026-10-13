@@ -1,4 +1,4 @@
-import { CONFIG, type ControlsParams, type IndicatorParams } from '../config';
+import { CONFIG, type ControlsParams } from '../config';
 import { moveTowards } from '../util/math';
 import { shiftRefusal, type Gear, type ShiftRefusal } from './gearbox';
 import {
@@ -58,7 +58,7 @@ export type ControlEvent =
   | { type: 'gearSelected'; gear: Gear; previous: Gear }
   | { type: 'gearRefused'; gear: Gear; reason: ShiftRefusal }
   | { type: 'indicatorOn'; side: IndicatorSide }
-  | { type: 'indicatorOff'; side: IndicatorSide; auto: boolean }
+  | { type: 'indicatorOff'; side: IndicatorSide }
   | { type: 'hazardOn' }
   | { type: 'hazardOff' };
 
@@ -83,15 +83,14 @@ export function isBrakePressed(state: CarControlsState): boolean {
 
 /**
  * One fixed simulation step: pedals follow the held keys, then the step's commands are applied
- * in order, then the indicators flash and self-cancel.
+ * in order, then the indicators flash.
  */
 export function stepCarControls(
   state: CarControlsState,
   input: ControlsInput,
-  motion: Pick<VehicleState, 'speed' | 'steer'>,
+  motion: Pick<VehicleState, 'speed'>,
   dt: number,
   params: ControlsParams = CONFIG.controls,
-  indicatorParams: IndicatorParams = CONFIG.indicators,
 ): { state: CarControlsState; events: ControlEvent[] } {
   const { held } = input;
   let next: CarControlsState = {
@@ -106,9 +105,7 @@ export function stepCarControls(
     next = applyCommand(next, command, motion.speed, events, params);
   }
 
-  const indicators = stepIndicators(next.indicators, motion.steer, dt, indicatorParams);
-  if (indicators.autoCancelled) events.push({ type: 'indicatorOff', side: indicators.autoCancelled, auto: true });
-  next = { ...next, indicators: indicators.state };
+  next = { ...next, indicators: stepIndicators(next.indicators, dt) };
 
   return { state: next, events };
 }
@@ -152,7 +149,7 @@ function applyCommand(
       const before = state.indicators.lever;
       const indicators = pressIndicator(state.indicators, command.side);
       const after = indicators.lever;
-      if (before) events.push({ type: 'indicatorOff', side: before, auto: false });
+      if (before) events.push({ type: 'indicatorOff', side: before });
       if (after) events.push({ type: 'indicatorOn', side: after });
       return { ...state, indicators };
     }

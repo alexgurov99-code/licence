@@ -158,20 +158,18 @@ describe('stepVehicle', () => {
 });
 
 describe('stepVehicle with the automatic gearbox', () => {
-  it('creeps forwards in D with no pedals and settles at creep speed', () => {
-    const s = run(createVehicleState(), DRIVE, 10);
-    expect(s.speed).toBeCloseTo(params.creepSpeed, 1);
-    expect(s.z).toBeGreaterThan(5);
+  it('stays still in D or R with no pedals (no creep)', () => {
+    for (const gear of ['D', 'R'] as const) {
+      const s = run(createVehicleState(), { ...DRIVE, gear }, 10);
+      expect(s.speed).toBe(0);
+      expect(s.z).toBe(0);
+    }
   });
 
-  it('creeps backwards in R', () => {
-    const s = run(createVehicleState(), { ...DRIVE, gear: 'R' }, 10);
-    expect(s.speed).toBeCloseTo(-params.creepSpeed, 1);
-  });
-
-  it('slows down to creep speed when the accelerator is released in D', () => {
+  it('rolls to a stop when the accelerator is released in D, without rolling back', () => {
     const s = run(createVehicleState({ speed: kmh(50) }), DRIVE, 60);
-    expect(s.speed).toBeCloseTo(params.creepSpeed, 1);
+    expect(s.speed).toBeGreaterThanOrEqual(0);
+    expect(s.speed).toBeCloseTo(0, 1);
   });
 
   it('coasts further in N than in D (no engine braking)', () => {
@@ -184,11 +182,11 @@ describe('stepVehicle with the automatic gearbox', () => {
     expect(run(createVehicleState(), { ...DRIVE, brake: 1 }, 5)).toEqual(createVehicleState());
   });
 
-  it('a light brake is enough to hold the car against creep', () => {
+  it('a light brake keeps the car still', () => {
     expect(run(createVehicleState(), { ...DRIVE, brake: 0.2 }, 5).speed).toBe(0);
   });
 
-  it('the handbrake holds the car against creep and even full throttle', () => {
+  it('the handbrake holds the car, even at full throttle', () => {
     expect(run(createVehicleState(), { ...DRIVE, handbrake: true }, 5).speed).toBe(0);
     expect(run(createVehicleState(), { ...GAS, handbrake: true }, 5).speed).toBe(0);
   });
