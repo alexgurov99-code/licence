@@ -1,4 +1,6 @@
 import { CONFIG, type VehicleParams } from '../config';
+import { clamp, lerp, moveTowards } from '../util/math';
+import { driveAcceleration, type Gear } from './gearbox';
 
 // Pure vehicle motion: no Three.js, no DOM. Same input sequence always gives the same result.
 //
@@ -18,18 +20,28 @@ export interface VehicleState {
   steer: number;
 }
 
+/** What the physics needs to know about the driver's controls. */
 export interface VehicleControls {
   /** Accelerator pedal, 0..1. */
   throttle: number;
   /** Brake pedal, 0..1. */
   brake: number;
-  /** Which way the throttle drives the car: +1 forwards, -1 backwards. */
-  direction: 1 | -1;
+  handbrake: boolean;
+  gear: Gear;
+  engineOn: boolean;
   /** Steering keys: -1 right, 0 none, +1 left. */
   steerInput: number;
 }
 
-export const NO_CONTROLS: VehicleControls = { throttle: 0, brake: 0, direction: 1, steerInput: 0 };
+/** Engine off, in neutral, nothing pressed: the car just rolls. */
+export const NO_CONTROLS: VehicleControls = {
+  throttle: 0,
+  brake: 0,
+  handbrake: false,
+  gear: 'N',
+  engineOn: false,
+  steerInput: 0,
+};
 
 export function createVehicleState(overrides: Partial<VehicleState> = {}): VehicleState {
   return { x: 0, z: 0, heading: 0, speed: 0, steer: 0, ...overrides };
@@ -41,15 +53,15 @@ export function stepVehicle(
   dt: number,
   params: VehicleParams = CONFIG.vehicle,
 ): VehicleState {
-  const steer = stepSteering(state.steer, controls.steerInput, dt, params);
+  const steer = stepSteering(state.steer, controls.steerInput, state.speed, dt, params);
   const speed = stepSpeed(state.speed, controls, dt, params);
 
   // Kinematic "bicycle" model: the car turns around a point on its rear axle line,
   // so it cannot rotate on the spot and turns tighter the more the wheels are turned.
   const averageSpeed = (state.speed + speed) / 2;
   const steerAngle = steer * params.maxSteerAngle;
-  const yawRate = (averageSpeed / params.wheelbase) * Math.tan(steerAngle);
-  const headingChange = yawRate * dt;
+  const curvature = limitCurvature(Math.tan(steerAngle) / params.wheelbase, averageSpeed, params);
+  const headingChange = averageSpeed * curvature * dt;
   const midHeading = state.heading + headingChange / 2;
 
   return {
@@ -61,22 +73,38 @@ export function stepVehicle(
   };
 }
 
-function stepSteering(current: number, input: number, dt: number, params: VehicleParams): number {
+function stepSteering(current: number, input: number, speed: number, dt: number, params: VehicleParams): number {
   const target = clamp(input, -1, 1);
-  const returningToCentre = target === 0 || Math.sign(target) !== Math.sign(current);
-  const rate = returningToCentre ? params.steerReturnRate : params.steerRate;
+  const returningToCentre = target === 0 || (current !== 0 && Math.sign(target) !== Math.sign(current));
+  const turnRate = params.steerRate / (1 + Math.abs(speed) / params.steerHalfRateSpeed);
+  const rate = returningToCentre ? params.steerReturnRate : turnRate;
   return moveTowards(current, target, rate * dt);
+}
+
+/**
+ * Turning tightness (1 / radius) is capped by tyre grip: sideways acceleration speed² / radius
+ * cannot exceed the limit. At parking speeds the wheels decide; at road speeds grip does.
+ */
+function limitCurvature(curvature: number, speed: number, params: VehicleParams): number {
+  const speedSquared = speed * speed;
+  if (speedSquared < 1e-6) return curvature;
+  const limit = params.maxLateralAcceleration / speedSquared;
+  return clamp(curvature, -limit, limit);
 }
 
 function stepSpeed(speed: number, controls: VehicleControls, dt: number, params: VehicleParams): number {
   const throttle = clamp(controls.throttle, 0, 1);
   const brake = clamp(controls.brake, 0, 1);
 
-  // Engine pushes in the chosen direction; brakes and rolling resistance only ever slow the car
+  // The engine pushes in the gear's direction; brakes and resistance only ever slow the car
   // down towards zero and never push it the other way.
-  const driven = speed + controls.direction * throttle * params.acceleration * dt;
-  const resistance = (brake * params.brakeDeceleration + params.rollingDeceleration) * dt;
-  const slowed = moveTowards(driven, 0, resistance);
+  const drive = driveAcceleration(controls.gear, controls.engineOn, throttle, speed, params);
+  const braking =
+    brake * params.brakeDeceleration +
+    (controls.handbrake ? params.handbrakeDeceleration : 0) +
+    (controls.gear === 'P' ? params.parkLockDeceleration : 0);
+  const resistance = params.rollingDeceleration + params.airDrag * speed * speed;
+  const slowed = moveTowards(speed + drive * dt, 0, (braking + resistance) * dt);
 
   return clamp(slowed, -params.maxReverseSpeed, params.maxForwardSpeed);
 }
@@ -100,17 +128,4 @@ export function normalizeAngle(angle: number): number {
   if (a <= -Math.PI) a += twoPi;
   if (a > Math.PI) a -= twoPi;
   return a;
-}
-
-function moveTowards(value: number, target: number, maxDelta: number): number {
-  if (Math.abs(target - value) <= maxDelta) return target;
-  return value + Math.sign(target - value) * maxDelta;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }

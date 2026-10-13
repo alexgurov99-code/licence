@@ -37,10 +37,44 @@ body {
   bottom: 8px;
   padding: 4px 8px;
   font-size: 12px;
+  line-height: 1.5;
   color: #fff;
   background: rgb(0 0 0 / 0.45);
   border-radius: 4px;
   pointer-events: none;
+  white-space: pre-line;
+}
+
+/* The same canvas is the dashboard texture in the cabin view; on screen only in the view from behind. */
+.instrument-cluster {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: min(400px, 60vw);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#app .instrument-cluster[hidden] {
+  display: none;
+}
+
+.message-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 16px;
+  font-size: 16px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.7);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.message-banner[hidden] {
+  display: none;
 }
 
 .fatal-error {
