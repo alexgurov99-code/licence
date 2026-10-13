@@ -83,6 +83,43 @@ export const CONFIG = {
     steeringWheelTurns: 1.25,
   },
 
+  /**
+   * Mirror glass in car coordinates (+Z forward, +X the car's left, Y up from the ground).
+   * view: where the centre of a well-adjusted mirror looks — viewYaw turns from straight back
+   * towards the car's left, viewPitch tilts up (negative = down). The glass angle that gives this
+   * view is worked out from the driver's eye, so it follows the seat position.
+   * wideAngle: 1 = flat glass; above 1 = convex: a wider view, but things look smaller.
+   */
+  mirrors: {
+    /** Picture resolution of each mirror, pixels across; the height follows the glass shape. */
+    textureWidth: 768,
+    interior: { x: 0, y: 1.36, z: 0.32, width: 0.25, height: 0.075, viewYaw: 0, viewPitch: -0.03, wideAngle: 1 },
+    /** Passenger side. Far from the driver, so a flat glass would show only a narrow strip. */
+    left: { x: 1.02, y: 1.03, z: 0.56, width: 0.21, height: 0.125, viewYaw: 0.07, viewPitch: -0.02, wideAngle: 2 },
+    /** Driver's side, flat. */
+    right: { x: -1.02, y: 1.03, z: 0.56, width: 0.21, height: 0.125, viewYaw: -0.06, viewPitch: -0.02, wideAngle: 1 },
+  },
+
+  glance: {
+    /** A look in a mirror or over a shoulder counts as a check once the key has been held this long. */
+    minCheckSeconds: 0.5,
+    /** The head turns about the neck, which is this far behind the eyes. */
+    neckOffset: 0.1,
+    /** Over the shoulder: how far the head turns from straight ahead (2.45 rad ≈ 140°), and the tilt down. */
+    shoulderYaw: 2.45,
+    shoulderPitch: -0.1,
+    /** Looking straight back the driver also twists in the seat, moving the head this far towards the middle. */
+    lookBackShift: 0.3,
+    lookBackPitch: -0.04,
+    /** Vertical field of view of the over-the-shoulder and looking-back pictures, degrees. */
+    shoulderFov: 55,
+    /** Narrower, so the rear window fills more of the picture. */
+    lookBackFov: 40,
+    /** Shape (width / height) and resolution of those pictures. */
+    aspect: 1.6,
+    textureWidth: 960,
+  },
+
   camera: {
     fov: 60,
     near: 0.1,
@@ -118,6 +155,23 @@ export const CONFIG = {
   ui: {
     /** How long a hint message stays on screen. */
     messageSeconds: 3,
+    /** Windows that pop up while a look key is held. Sizes are shares of the screen width. */
+    popups: {
+      interiorMirrorWidth: 0.42,
+      sideMirrorWidth: 0.27,
+      lookBackWidth: 0.4,
+      shoulderWidth: 0.34,
+      /** No window gets taller than this share of the screen height. */
+      maxHeight: 0.42,
+      /** Gap to the screen edge, pixels. */
+      margin: 16,
+      /** Vertical centre of the side windows, as a share of the screen height from the top. */
+      sideCentre: 0.47,
+      /** The always-on mirror windows in the view from behind, as a share of the full size. */
+      smallScale: 0.55,
+      /** Time to open or close a window. */
+      openSeconds: 0.12,
+    },
   },
 
   debug: {
@@ -138,3 +192,6 @@ export type IndicatorParams = NumberFields<typeof CONFIG.indicators>;
 export type CabinParams = NumberFields<typeof CONFIG.cabin>;
 export type ChaseCameraParams = NumberFields<typeof CONFIG.camera.chase>;
 export type FirstPersonCameraParams = NumberFields<typeof CONFIG.camera.firstPerson>;
+export type MirrorSpec = NumberFields<typeof CONFIG.mirrors.left>;
+export type GlanceParams = NumberFields<typeof CONFIG.glance>;
+export type PopupParams = NumberFields<typeof CONFIG.ui.popups>;

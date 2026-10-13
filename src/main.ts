@@ -1,14 +1,19 @@
 import * as THREE from 'three';
 import { IndicatorSound } from './audio/indicatorSound';
 import { ChaseCamera } from './camera/chaseCamera';
-import { FirstPersonCamera } from './camera/firstPersonCamera';
+import { driverEye, FirstPersonCamera } from './camera/firstPersonCamera';
+import { createGlanceState, stepGlance } from './camera/glance';
+import { LookCamera } from './camera/lookCamera';
+import { defaultMirrorAims } from './camera/mirrorOptics';
+import { MirrorCameras } from './camera/mirrors';
 import { CONFIG } from './config';
-import { GEAR_ACTIONS, readHeldKeys, takeCommands } from './input/carInput';
+import { GEAR_ACTIONS, readGlanceKeys, readHeldKeys, takeCommands } from './input/carInput';
 import { Keyboard } from './input/keyboard';
 import { keyLabel } from './input/keymap';
 import './style.css';
-import { DebugOverlay, describeEvent } from './ui/debugOverlay';
+import { DebugOverlay, describeEvent, describeGlanceEvent } from './ui/debugOverlay';
 import { FpsCounter } from './ui/fpsCounter';
+import { GlancePopups } from './ui/glancePopups';
 import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
 import { eventMessage, MessageBanner, stuckHint } from './ui/messages';
 import { CabinMesh } from './vehicle/cabinMesh';
@@ -32,6 +37,8 @@ function start(container: HTMLElement): void {
   }
   container.appendChild(renderer.domElement);
   const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+  // Each frame is drawn in several passes (mirrors, main view, windows); count them all together.
+  renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SKY_COLOR);
@@ -52,10 +59,19 @@ function start(container: HTMLElement): void {
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
 
+  // Mirrors are worked out from the driver's eye. For now they start well adjusted; adjusting the
+  // seat and mirrors is part of the cockpit drill (stage 6).
+  const eye = driverEye();
+  const mirrorAims = defaultMirrorAims(eye);
+  const mirrorCameras = new MirrorCameras(vehicleMesh.root);
+  mirrorCameras.aim(mirrorAims, eye);
+  const lookCamera = new LookCamera(vehicleMesh.root);
+
   // The instruments are drawn once and shown twice: on the dashboard and as an on-screen panel.
   const cluster = new InstrumentCluster();
   container.appendChild(cluster.canvas);
-  const cabin = new CabinMesh(cluster.canvas, maxAnisotropy);
+  const cabin = new CabinMesh(cluster.canvas, maxAnisotropy, mirrorCameras.textures);
+  cabin.setMirrorAims(mirrorAims);
   vehicleMesh.root.add(cabin.root);
 
   const chaseCamera = new ChaseCamera(
@@ -64,7 +80,6 @@ function start(container: HTMLElement): void {
   const firstPerson = new FirstPersonCamera(vehicleMesh.root);
   let view: CameraView = 'firstPerson';
   const applyView = (): void => {
-    vehicleMesh.setInteriorView(view === 'firstPerson');
     cluster.canvas.hidden = view === 'firstPerson';
   };
   applyView();
@@ -74,6 +89,7 @@ function start(container: HTMLElement): void {
   window.addEventListener('keydown', () => indicatorSound.unlock());
   const debugOverlay = new DebugOverlay(container, CONFIG.debug.refreshIntervalSeconds);
   const fpsCounter = new FpsCounter(CONFIG.debug.fpsWindowSeconds);
+  const popups = new GlancePopups(container, { mirrors: mirrorCameras.textures, look: lookCamera.texture });
   const messages = new MessageBanner(container);
   addControlsHint(container);
 
@@ -85,6 +101,7 @@ function start(container: HTMLElement): void {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     }
+    popups.resize(width, height);
   };
   window.addEventListener('resize', resize);
   resize();
@@ -92,6 +109,7 @@ function start(container: HTMLElement): void {
   const step = CONFIG.simulation.fixedStepSeconds;
   let car = createCar();
   let previousMotion = car.motion;
+  let glance = createGlanceState();
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
@@ -127,6 +145,12 @@ function start(container: HTMLElement): void {
         const message = eventMessage(event);
         if (message) messages.show(message);
       }
+      const glanceResult = stepGlance(glance, readGlanceKeys(keyboard), simTime, step, CONFIG.glance);
+      glance = glanceResult.state;
+      for (const event of glanceResult.events) {
+        const text = describeGlanceEvent(event);
+        if (text) recentEvents.push(`${simTime.toFixed(1)}s  ${text}`);
+      }
       accumulator -= step;
       steps += 1;
     }
@@ -153,15 +177,33 @@ function start(container: HTMLElement): void {
     sun.position.set(pose.x + 20, 40, pose.z + 10);
     sun.target.position.set(pose.x, 0, pose.z);
 
+    popups.update(view, glance, frameSeconds);
+
+    renderer.info.reset();
+    // Shadows are worked out once, in the first pass, and reused by the other passes of the frame.
+    renderer.shadowMap.needsUpdate = true;
+    // The rear-view mirror looks through the cabin; the door mirrors see the car from outside.
+    cabin.setMirrorGlassVisible(false);
+    mirrorCameras.render(renderer, scene, (id) => vehicleMesh.setInteriorView(id === 'interior'));
+    cabin.setMirrorGlassVisible(true);
+    const look = popups.visibleLook();
+    if (look) {
+      vehicleMesh.setInteriorView(true);
+      lookCamera.render(renderer, scene, look, eye);
+    }
+    vehicleMesh.setInteriorView(view === 'firstPerson');
     const camera = view === 'chase' ? chaseCamera.camera : firstPerson.camera;
     renderer.render(scene, camera);
+    popups.render(renderer);
 
     fpsCounter.tick(frameSeconds);
     debugOverlay.update(frameSeconds, {
       fps: fpsCounter.fps,
       seed: null,
       view: VIEW_NAMES[view],
+      simTime,
       car,
+      glance,
       recentEvents,
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -175,6 +217,8 @@ function createRenderer(): THREE.WebGLRenderer | null {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Updated by hand once per frame (see the animation loop), not on every pass.
+    renderer.shadowMap.autoUpdate = false;
     return renderer;
   } catch {
     return null;
@@ -191,6 +235,8 @@ function addControlsHint(container: HTMLElement): void {
     `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake · ${k('belt')} belt`,
     `${k('indicatorLeft')} ${k('indicatorRight')} indicators · ${k('hazard')} hazards · ` +
       `${k('toggleView')} view · ${k('toggleDebug')} debug`,
+    `hold ${k('lookUp')} ${k('lookLeft')} ${k('lookRight')} mirrors · ${k('lookDown')} look back · ` +
+      `${k('lookDown')}+${k('lookLeft')} ${k('lookDown')}+${k('lookRight')} over the shoulder`,
   ].join('\n');
   container.appendChild(hint);
 }

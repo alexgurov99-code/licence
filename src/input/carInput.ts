@@ -1,3 +1,4 @@
+import type { GlanceKeys } from '../camera/glance';
 import type { ControlCommand, HeldKeys } from '../vehicle/carControls';
 import type { Gear } from '../vehicle/gearbox';
 import type { Action } from './keymap';
@@ -29,6 +30,16 @@ export function readHeldKeys(keys: ActionSource): HeldKeys {
     brake: keys.isDown('brake'),
     steerLeft: keys.isDown('steerLeft'),
     steerRight: keys.isDown('steerRight'),
+  };
+}
+
+/** The look keys (arrows), held to glance into a mirror or over a shoulder. */
+export function readGlanceKeys(keys: ActionSource): GlanceKeys {
+  return {
+    up: keys.isDown('lookUp'),
+    down: keys.isDown('lookDown'),
+    left: keys.isDown('lookLeft'),
+    right: keys.isDown('lookRight'),
   };
 }
 

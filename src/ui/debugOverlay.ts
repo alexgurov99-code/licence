@@ -1,3 +1,4 @@
+import type { GlanceEvent, GlanceState, GlanceTarget } from '../camera/glance';
 import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
 
@@ -5,7 +6,10 @@ export interface DebugInfo {
   fps: number;
   seed: string | null;
   view: string;
+  /** Simulation time, seconds. */
+  simTime: number;
   car: CarState;
+  glance: GlanceState;
   /** Newest last. */
   recentEvents: readonly string[];
   drawCalls: number;
@@ -65,6 +69,7 @@ export function formatDebugInfo(info: DebugInfo): string {
     `gear     ${c.gear}   engine ${onOff(c.engineOn)}`,
     `handbr.  ${onOff(c.handbrake)}   belt ${c.beltFastened ? 'fastened' : 'off'}`,
     `indic.   ${indicator}   hazard ${onOff(c.indicators.hazard)}`,
+    ...formatGlance(info.glance, info.simTime),
     `draws    ${info.drawCalls}  tris ${info.triangles}`,
     'events',
     ...info.recentEvents.map((line) => `  ${line}`),
@@ -102,5 +107,43 @@ export function describeEvent(event: ControlEvent): string {
       return 'hazards on';
     case 'hazardOff':
       return 'hazards off';
+  }
+}
+
+const GLANCE_NAMES: Record<GlanceTarget, string> = {
+  interiorMirror: 'rear-view mirror',
+  leftMirror: 'left mirror',
+  rightMirror: 'right mirror',
+  back: 'look back',
+  leftShoulder: 'left shoulder',
+  rightShoulder: 'right shoulder',
+};
+
+/** The current glance and how long ago each check was last done. */
+export function formatGlance(glance: GlanceState, simTime: number): string[] {
+  const ago = (target: GlanceTarget): string => {
+    const time = glance.lastChecked[target];
+    return time === null ? '-' : `${(simTime - time).toFixed(1)}s`;
+  };
+  const current = glance.target
+    ? `${GLANCE_NAMES[glance.target]} ${glance.seconds.toFixed(1)}s${glance.counted ? ' (counted)' : ''}`
+    : '-';
+  return [
+    `glance   ${current}`,
+    `checked  (seconds ago)`,
+    `  mirror   rear ${ago('interiorMirror')}  L ${ago('leftMirror')}  R ${ago('rightMirror')}`,
+    `  shoulder L ${ago('leftShoulder')}  R ${ago('rightShoulder')}  back ${ago('back')}`,
+  ];
+}
+
+/** One-line description of a glance event for the debug panel, or null if not worth listing. */
+export function describeGlanceEvent(event: GlanceEvent): string | null {
+  switch (event.type) {
+    case 'glanceCounted':
+      return `${GLANCE_NAMES[event.target]} check counted`;
+    case 'glanceEnded':
+      return event.counted ? null : `${GLANCE_NAMES[event.target]} too short (${event.seconds.toFixed(1)}s)`;
+    case 'glanceStarted':
+      return null;
   }
 }

@@ -20,6 +20,7 @@ body {
   position: absolute;
   top: 8px;
   left: 8px;
+  z-index: 20;
   margin: 0;
   padding: 8px 10px;
   min-width: 220px;
@@ -61,7 +62,9 @@ body {
 
 .message-banner {
   position: absolute;
-  top: 16px;
+  /* Set by the glance windows: below the rear-view mirror window in the view from behind. */
+  top: var(--hud-top, 16px);
+  z-index: 20;
   left: 50%;
   transform: translateX(-50%);
   max-width: calc(100% - 32px);
@@ -74,6 +77,43 @@ body {
 }
 
 .message-banner[hidden] {
+  display: none;
+}
+
+/* Frame and label of a glance window; the picture itself is drawn by WebGL underneath. */
+.glance-frame {
+  position: absolute;
+  border-radius: 2px;
+  outline: 3px solid rgb(255 255 255 / 0.85);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+
+.glance-frame[hidden] {
+  display: none;
+}
+
+.glance-frame.looking {
+  outline-color: #ffbf3c;
+}
+
+/* Held long enough to count as a check. */
+.glance-frame.counted {
+  outline-color: #48d17e;
+}
+
+.glance-label {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.6);
+  border-radius: 3px;
+}
+
+.glance-frame.small .glance-label {
   display: none;
 }
 
