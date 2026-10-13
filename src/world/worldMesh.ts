@@ -167,12 +167,12 @@ export class WorldMesh {
 }
 
 /** Hex colour to the linear values Three.js expects in vertex colours. */
-function rgb(hex: number): Rgb {
+export function rgb(hex: number): Rgb {
   const colour = new THREE.Color(hex);
   return [colour.r, colour.g, colour.b];
 }
 
-function toGeometry(builder: MeshBuilder): THREE.BufferGeometry {
+export function toGeometry(builder: MeshBuilder): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(builder.positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(builder.normals, 3));
@@ -184,7 +184,7 @@ function toGeometry(builder: MeshBuilder): THREE.BufferGeometry {
 }
 
 /** A flat band along sampled points, between two sideways offsets (positive = left). */
-function strip(
+export function strip(
   builder: MeshBuilder,
   points: readonly { x: number; z: number; heading: number }[],
   right: number,

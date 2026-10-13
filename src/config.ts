@@ -260,6 +260,54 @@ export const CONFIG = {
     },
   },
 
+  route: {
+    /** Junctions on a route; pulling out at the start and pulling over at the end come on top. */
+    minManeuvers: 6,
+    maxManeuvers: 10,
+    /** How often each way is picked at a junction, relative to each other. */
+    turnWeights: { left: 1, straight: 0.6, right: 1 },
+    /**
+     * A route is planned again (same seed, next attempt) until it has a left turn, a right turn
+     * and a roundabout (if the town has one); after this many attempts the best one is taken.
+     */
+    maxAttempts: 30,
+
+    /**
+     * NZ Road Code: signal for at least 3 seconds before turning, pulling out or pulling over.
+     * The indicator must be on from this many seconds before the manoeuvre at the speed limit.
+     */
+    minSignalSeconds: 3,
+    /** After a manoeuvre the indicator must be off within this distance. */
+    signalOffDistance: 20,
+    /** Pulling out: the car has moved off once it is this far along, and is in the lane by the end. */
+    pullOutStart: 0.5,
+    pullOutLength: 20,
+    /** Pulling over: the car moves towards the kerb over this distance before the stopping place. */
+    pullOverLength: 15,
+    /** Length of the stopping place by the kerb. */
+    stopBoxLength: 12,
+    /** The stopping place is on a straight, at least this far before the next junction (NZ: no parking within 6 m of an intersection)... */
+    finishBeforeJunction: 15,
+    /** ...and with this much road after the junction behind it before the pull-over signal is due. */
+    finishAfterJunction: 15,
+
+    tracking: {
+      /** The car is looked for on the route this far behind and ahead of where it was a moment ago. */
+      searchBehind: 10,
+      searchAhead: 40,
+      /** Further than this from the middle of the route's lane... */
+      offRouteDistance: 6,
+      /** ...or facing more than this away from the route (about 100 degrees) while driving forwards... */
+      offRouteHeading: 1.75,
+      /** ...for this long, and the car is off the route. A new way back is found once it is on a road. */
+      offRouteSeconds: 1,
+      /** Below this speed the direction the car faces does not matter (e.g. turning the wheel while stopped). */
+      headingCheckSpeed: 1,
+      /** Arrived: stopped in the stopping place at least this far left of the middle of the lane (near the kerb). */
+      finishMinOffset: 1.5,
+    },
+  },
+
   audio: {
     /** Loudness of the indicator relay click, 0..1. */
     indicatorVolume: 0.8,
@@ -287,13 +335,32 @@ export const CONFIG = {
     },
   },
 
+  minimap: {
+    /** Side of the map in the corner, CSS pixels. */
+    size: 230,
+    /** Metres of town across the corner map. */
+    metresAcross: 200,
+    /** The car sits this far down the corner map (share of its height), so more of the road ahead shows. */
+    carPosition: 0.66,
+    /** The big map (M) fills this share of the shorter side of the screen. */
+    largeShare: 0.86,
+    /** Navigation hints: closer than this, the distance is no longer said ("Turn left"). */
+    nowDistance: 20,
+    /** Distances are rounded to this step, and to the coarser step from `coarseFrom` on. */
+    distanceStep: 10,
+    coarseStep: 50,
+    coarseFrom: 300,
+    /** Two manoeuvres closer together than this are said together ("Turn left, then turn right"). */
+    thenDistance: 60,
+  },
+
   debug: {
     /** How often the debug panel text is refreshed. */
     refreshIntervalSeconds: 0.1,
     /** Time window over which FPS is averaged. */
     fpsWindowSeconds: 0.5,
-    /** How many recent control events the debug panel lists. */
-    recentEvents: 6,
+    /** How many recent events (controls, glances, route) the debug panel lists. */
+    recentEvents: 10,
   },
 } as const;
 
@@ -311,3 +378,5 @@ export type MirrorSpec = NumberFields<typeof CONFIG.mirrors.left>;
 export type GlanceParams = NumberFields<typeof CONFIG.glance>;
 export type PopupParams = NumberFields<typeof CONFIG.ui.popups>;
 export type WorldParams = Widen<typeof CONFIG.world>;
+export type RouteParams = Widen<typeof CONFIG.route>;
+export type MinimapParams = NumberFields<typeof CONFIG.minimap>;
