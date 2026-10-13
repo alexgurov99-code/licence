@@ -11,18 +11,22 @@ import { GEAR_ACTIONS, readGlanceKeys, readHeldKeys, takeCommands } from './inpu
 import { Keyboard } from './input/keyboard';
 import { keyLabel } from './input/keymap';
 import './style.css';
-import { DebugOverlay, describeEvent, describeGlanceEvent } from './ui/debugOverlay';
+import { DebugOverlay, describeEvent, describeGlanceEvent, describeMap } from './ui/debugOverlay';
 import { FpsCounter } from './ui/fpsCounter';
 import { GlancePopups } from './ui/glancePopups';
 import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
 import { eventMessage, MessageBanner, stuckHint } from './ui/messages';
+import { randomSeed } from './util/random';
 import { CabinMesh } from './vehicle/cabinMesh';
 import { createCar, stepCar } from './vehicle/car';
 import type { ControlCommand } from './vehicle/carControls';
 import { indicatorLamps, isFlasherLit } from './vehicle/indicators';
 import { interpolatePose } from './vehicle/vehicle';
 import { VehicleMesh } from './vehicle/vehicleMesh';
-import { createGround } from './world/ground';
+import { DebugGraph } from './world/debugGraph';
+import { locate } from './world/locate';
+import { buildNetwork, type RoadNetwork } from './world/network';
+import { WorldMesh } from './world/worldMesh';
 
 const SKY_COLOR = 0xbcd6ea;
 
@@ -55,7 +59,15 @@ function start(container: HTMLElement): void {
   shadowCamera.updateProjectionMatrix();
   scene.add(sun, sun.target);
 
-  scene.add(createGround(maxAnisotropy));
+  // The town comes from the seed in the address (?seed=abc); without one, a new seed is made up
+  // and written into the address, so reloading the page or sharing the link gives the same town.
+  let network: RoadNetwork = buildNetwork(seedFromAddress() ?? randomSeed());
+  showSeedInAddress(network.seed);
+  let world = new WorldMesh(network, maxAnisotropy);
+  let debugGraph = new DebugGraph(network);
+  let mapSummary = describeMap(network);
+  scene.add(world.root, debugGraph.object);
+
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
 
@@ -107,7 +119,9 @@ function start(container: HTMLElement): void {
   resize();
 
   const step = CONFIG.simulation.fixedStepSeconds;
-  let car = createCar();
+  const parkedAtStart = (): ReturnType<typeof createCar> =>
+    createCar({ motion: { x: network.start.x, z: network.start.z, heading: network.start.heading } });
+  let car = parkedAtStart();
   let previousMotion = car.motion;
   let glance = createGlanceState();
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
@@ -125,6 +139,22 @@ function start(container: HTMLElement): void {
     lastTime = time;
 
     if (keyboard.takePressed('toggleDebug')) debugOverlay.toggle();
+    if (keyboard.takePressed('newMap') && debugOverlay.isVisible) {
+      scene.remove(world.root, debugGraph.object);
+      world.dispose();
+      debugGraph.dispose();
+      network = buildNetwork(randomSeed());
+      showSeedInAddress(network.seed);
+      world = new WorldMesh(network, maxAnisotropy);
+      debugGraph = new DebugGraph(network);
+      mapSummary = describeMap(network);
+      scene.add(world.root, debugGraph.object);
+      car = parkedAtStart();
+      previousMotion = car.motion;
+      pendingCommands = [];
+      chaseCamera.snapTo(car.motion);
+      recentEvents.push(`${simTime.toFixed(1)}s  new map, seed ${network.seed}`);
+    }
     if (keyboard.takePressed('toggleView')) {
       view = view === 'firstPerson' ? 'chase' : 'firstPerson';
       applyView();
@@ -182,6 +212,8 @@ function start(container: HTMLElement): void {
     renderer.info.reset();
     // Shadows are worked out once, in the first pass, and reused by the other passes of the frame.
     renderer.shadowMap.needsUpdate = true;
+    // The debug lines are only drawn in the main view, never in the mirrors.
+    debugGraph.object.visible = false;
     // The rear-view mirror looks through the cabin; the door mirrors see the car from outside.
     cabin.setMirrorGlassVisible(false);
     mirrorCameras.render(renderer, scene, (id) => vehicleMesh.setInteriorView(id === 'interior'));
@@ -193,13 +225,17 @@ function start(container: HTMLElement): void {
     }
     vehicleMesh.setInteriorView(view === 'firstPerson');
     const camera = view === 'chase' ? chaseCamera.camera : firstPerson.camera;
+    debugGraph.object.visible = debugOverlay.isVisible;
     renderer.render(scene, camera);
+    debugGraph.object.visible = false;
     popups.render(renderer);
 
     fpsCounter.tick(frameSeconds);
     debugOverlay.update(frameSeconds, {
       fps: fpsCounter.fps,
-      seed: null,
+      seed: network.seed,
+      map: mapSummary,
+      location: locate(network, pose, pose.heading),
       view: VIEW_NAMES[view],
       simTime,
       car,
@@ -234,11 +270,23 @@ function addControlsHint(container: HTMLElement): void {
       `${k(GEAR_ACTIONS.P)} ${k(GEAR_ACTIONS.R)} ${k(GEAR_ACTIONS.N)} ${k(GEAR_ACTIONS.D)} gears P R N D`,
     `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake · ${k('belt')} belt`,
     `${k('indicatorLeft')} ${k('indicatorRight')} indicators · ${k('hazard')} hazards · ` +
-      `${k('toggleView')} view · ${k('toggleDebug')} debug`,
+      `${k('toggleView')} view · ${k('toggleDebug')} debug (${k('newMap')} new map)`,
     `hold ${k('lookUp')} ${k('lookLeft')} ${k('lookRight')} mirrors · ${k('lookDown')} look back · ` +
       `${k('lookDown')}+${k('lookLeft')} ${k('lookDown')}+${k('lookRight')} over the shoulder`,
   ].join('\n');
   container.appendChild(hint);
+}
+
+function seedFromAddress(): string | null {
+  const seed = new URLSearchParams(window.location.search).get('seed')?.trim();
+  return seed ? seed : null;
+}
+
+/** Puts the seed into the address bar without reloading, so the page can be reloaded or shared. */
+function showSeedInAddress(seed: string): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('seed', seed);
+  window.history.replaceState(null, '', url);
 }
 
 function showError(container: HTMLElement, message: string): void {

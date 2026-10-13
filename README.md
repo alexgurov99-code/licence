@@ -33,8 +33,16 @@ Pull requests run the same checks without deploying.
 | Q / E | Left / right indicator (press again to switch off) |
 | H | Hazard lights |
 | C | Driver's seat view / view from behind |
+| Arrows (hold) | Look: ↑ rear-view mirror, ← / → door mirrors, ↓ back; ↓+← / ↓+→ over the shoulder |
 | `` ` `` | Debug panel |
+| N | New town (only while the debug panel is open) |
 
-A drive starts with the engine off, in P, with the handbrake on and the belt off.
+A drive starts parked on the left shoulder of a side street, with the engine off, in P, with the handbrake on and the belt off.
+
+## Town and seed
+
+The town is generated from a seed: the same seed always gives the same streets, junctions, signs and houses.
+The seed is in the address, e.g. `…/licence/?seed=abc`; without one, a new seed is made up and written into the address,
+so reloading the page or sharing the link gives the same town.
 
 Key bindings live in `src/input/keymap.ts`; all tunable numbers live in `src/config.ts`.
