@@ -408,6 +408,8 @@ export const CONFIG = {
     /** Each fault shows on screen this long; at most this many at once. */
     faultSeconds: 6,
     faultsShown: 4,
+    /** Learner mode: the steps for the next manoeuvre light up this far before the indicator should go on. */
+    coachAheadDistance: 60,
     /** Windows that pop up while a look key is held. Sizes are shares of the screen width. */
     popups: {
       interiorMirrorWidth: 0.42,
