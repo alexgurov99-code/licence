@@ -232,24 +232,46 @@ export const CONFIG = {
       postWidth: 0.07,
     },
 
-    houses: {
-      /** Distance between neighbouring houses along a road, centre to centre. */
-      minSpacing: 15,
-      maxSpacing: 22,
-      /** Width along the road, depth away from it, wall height. */
-      minWidth: 7,
-      maxWidth: 12,
-      minDepth: 8,
-      maxDepth: 12,
-      minHeight: 2.8,
-      maxHeight: 5.5,
-      /** Front yard: from the outer edge of the shoulder to the front wall. */
-      minSetback: 5,
-      maxSetback: 10,
-      /** No houses this close to the middle of a junction, so drivers can see along the side roads. */
-      junctionClearance: 26,
-      /** Smallest gap between a house and any road's shoulder, and between two houses. */
-      clearance: 2,
+    /** Houses, trees, poles and parked cars along the roads (models from design/nz-suburb-kit.html). */
+    scenery: {
+      /** Grass verge between the outer edge of the shoulder and the sections. */
+      vergeWidth: 3.5,
+      /** At junctions, nothing tall inside the triangle between two neighbouring arms, this long along each arm from the middle. */
+      sightLeg: 40,
+      /** In front of every sign, nothing tall along the drivers' approach for this long... */
+      signCorridorLength: 40,
+      /** ...and this far either side of the line through the sign post. */
+      signCorridorHalfWidth: 2,
+      /** No verge items or parked cars this close to where the car starts or stops at the end. */
+      startClearance: 15,
+      /** Up to this height an item may stand in the sight triangles (letterboxes, bins, low shrubs). */
+      lowHeight: 1.2,
+      /** A sign post keeps this much room around it. */
+      signClearance: 2,
+      /** Lot left empty now and then, and lots with a car or a trailer in the driveway. */
+      emptyLotChance: 0.08,
+      driveCarChance: 0.35,
+      trailerChance: 0.06,
+      /** Wheelie bins out on the verge in front of a section. */
+      wheelieBinChance: 0.25,
+      /** Street lights along one side of every road, power poles along the other. */
+      streetLightSpacing: 35,
+      powerPoleSpacing: 42,
+      /** Verge trees: a slot every so often, filled at this chance. */
+      vergeTreeSpacing: 16,
+      vergeTreeChance: 0.35,
+      /** Fire hydrant markers on the verge. */
+      hydrantSpacing: 70,
+      /** Bus stops in the town, on the longest straight stretches. */
+      busStops: 3,
+      /** Share of T and cross junctions with a corner shop (at least one in town). */
+      cornerShopChance: 0.3,
+      /** Share of streets (off the route) with cars parked by the kerb, how many, and how far from junctions. */
+      parkedStreetChance: 0.4,
+      maxParkedPerStreet: 3,
+      parkedFromJunction: 20,
+      /** Shrubs on each roundabout island. */
+      islandShrubs: 4,
     },
 
     start: {

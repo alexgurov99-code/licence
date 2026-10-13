@@ -58,7 +58,5 @@ describe('where the car is', () => {
       junctionKind: junction.kind,
     });
     expect(locate(network, { x: 5000, z: 0 }, 0)).toEqual({ kind: 'offRoad' });
-    const house = network.houses[0];
-    if (house) expect(locate(network, house, 0)).toEqual({ kind: 'offRoad' });
   });
 });

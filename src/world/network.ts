@@ -29,7 +29,6 @@ import {
   pathEnd,
   pathStart,
   pointAt,
-  project,
   reversePath,
   samplePath,
   type Path,
@@ -40,7 +39,7 @@ import {
 
 // The road network as exact geometry, built from the town plan (layout.ts): roads and their
 // lanes, the paths a car follows through each junction, limit lines, signs, road markings,
-// houses and the start position. Pure data, no Three.js: the route (stage 4) and the rules
+// and the start position (houses and the rest of the scenery: scenery.ts). Pure data, no Three.js: the route (stage 4) and the rules
 // engine (stage 5) read it, and worldMesh.ts draws it.
 
 export type JunctionKind = 'tee' | 'cross' | 'roundabout';
@@ -159,19 +158,6 @@ export interface RoadSymbol {
   laneId: number;
 }
 
-export interface House {
-  x: number;
-  z: number;
-  /** Direction the front wall faces (towards the road). */
-  heading: number;
-  /** Along the front wall, away from the road, wall height. */
-  width: number;
-  depth: number;
-  height: number;
-  /** Picks the colours; any whole number. */
-  style: number;
-}
-
 export interface StartPosition extends Pose {
   laneId: number;
 }
@@ -189,7 +175,6 @@ export interface RoadNetwork {
   signs: readonly Sign[];
   markings: readonly Marking[];
   symbols: readonly RoadSymbol[];
-  houses: readonly House[];
   start: StartPosition;
 }
 
@@ -390,7 +375,6 @@ export function buildNetwork(
   }
 
   const markings = roadMarkings(roads, junctions, limitLines, params);
-  const houses = placeHouses(roads, junctions, random, params, layout.tilesPerSide * layout.tileSize);
   const start = startPosition(roads, lanes, random, params, carWidth);
 
   return {
@@ -405,7 +389,6 @@ export function buildNetwork(
     signs,
     markings,
     symbols,
-    houses,
     start,
   };
 }
@@ -634,72 +617,6 @@ function stripe(
       corners: [add(p, lp, rightOffset), add(q, lq, rightOffset), add(q, lq, leftOffset), add(p, lp, leftOffset)],
     });
   }
-}
-
-/** Houses in rows along both sides of every road, set back from the shoulder and clear of junctions. */
-function placeHouses(
-  roads: readonly Road[],
-  junctions: readonly Junction[],
-  random: Random,
-  params: WorldParams,
-  townSize: number,
-): House[] {
-  const h = params.houses;
-  const roadHalfWidth = params.laneWidth + params.shoulderWidth;
-  const houses: House[] = [];
-  const fits = (corners: readonly Vec2[], centre: Vec2, radius: number): boolean => {
-    const limit = townSize / 2 - 1;
-    if (corners.some((p) => Math.abs(p.x) > limit || Math.abs(p.z) > limit)) return false;
-    if (corners.some((p) => junctions.some((j) => distance(p, j.centre) < h.junctionClearance))) return false;
-    for (const road of roads) {
-      for (const p of corners) {
-        if (project(road.centreline, p).distance < roadHalfWidth + h.clearance) return false;
-      }
-    }
-    return houses.every((other) => distance(other, centre) >= radius + houseRadius(other) + h.clearance);
-  };
-  for (const road of roads) {
-    for (const side of [1, -1]) {
-      for (let s = random.range(0, h.maxSpacing); s < road.centreline.length; s += random.range(h.minSpacing, h.maxSpacing)) {
-        const width = random.range(h.minWidth, h.maxWidth);
-        const depth = random.range(h.minDepth, h.maxDepth);
-        const height = random.range(h.minHeight, h.maxHeight);
-        const setback = random.range(h.minSetback, h.maxSetback);
-        const style = random.int(0, 1000);
-        const pose = pointAt(road.centreline, s);
-        const outwards = leftOf(pose.heading);
-        const centre = add(pose, outwards, side * (roadHalfWidth + setback + depth / 2));
-        const house: House = {
-          x: centre.x,
-          z: centre.z,
-          heading: normalizeAngle(pose.heading - (side * Math.PI) / 2),
-          width,
-          depth,
-          height,
-          style,
-        };
-        if (fits(houseOutline(house), centre, houseRadius(house))) houses.push(house);
-      }
-    }
-  }
-  return houses;
-}
-
-/** Corners, middles of the walls and the centre of a house's footprint. */
-export function houseOutline(house: House): Vec2[] {
-  const front = forward(house.heading);
-  const across = leftOf(house.heading);
-  const points: Vec2[] = [];
-  for (const a of [-1, 0, 1]) {
-    for (const b of [-1, 0, 1]) {
-      points.push(add(add(house, front, (a * house.depth) / 2), across, (b * house.width) / 2));
-    }
-  }
-  return points;
-}
-
-function houseRadius(house: House): number {
-  return Math.hypot(house.width, house.depth) / 2;
 }
 
 /** Parked on the left shoulder of a straight bit of side street, with room to drive off ahead. */

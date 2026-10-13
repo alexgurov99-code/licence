@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import { normalizeAngle } from '../util/math';
 import { dirHeading, opposite } from './layout';
 import { locate } from './locate';
-import { buildNetwork, houseOutline, turnBetween, type Lane, type RoadNetwork, type Sign } from './network';
+import { buildNetwork, turnBetween, type Lane, type RoadNetwork, type Sign } from './network';
 import {
   distance,
   forward,
@@ -385,44 +385,6 @@ describe('road markings', () => {
         const share = W.markings.centreDash / (W.markings.centreDash + W.markings.centreGap);
         expect(painted / road.centreline.length).toBeGreaterThan(share * 0.7);
         expect(painted / road.centreline.length).toBeLessThan(share * 1.2);
-      }
-    });
-  });
-});
-
-describe('houses', () => {
-  it('stand off the roads, clear of junctions and of each other, inside the town', () => {
-    forEachNetwork((network) => {
-      expect(network.houses.length).toBeGreaterThan(50);
-      const limit = network.size / 2;
-      const problems: string[] = [];
-      network.houses.forEach((house, i) => {
-        for (const p of houseOutline(house)) {
-          if (Math.abs(p.x) > limit || Math.abs(p.z) > limit) problems.push(`house ${i} outside the town`);
-          const road = Math.min(...network.roads.map((r) => project(r.centreline, p).distance));
-          if (road < ROAD_HALF_WIDTH + W.houses.clearance - 1e-6) problems.push(`house ${i} ${road.toFixed(2)} m from a road`);
-          const junction = Math.min(...network.junctions.map((j) => distance(p, j.centre)));
-          if (junction < W.houses.junctionClearance - 1e-6) problems.push(`house ${i} too close to a junction`);
-        }
-        // No two houses overlap (each footprint is inside a circle, and the circles do not touch).
-        for (let j = i + 1; j < network.houses.length; j++) {
-          const other = network.houses[j];
-          if (!other) continue;
-          const reach = (Math.hypot(house.width, house.depth) + Math.hypot(other.width, other.depth)) / 2;
-          if (distance(house, other) < reach) problems.push(`houses ${i} and ${j} overlap`);
-        }
-      });
-      expect(problems).toEqual([]);
-    });
-  });
-
-  it('face the road', () => {
-    forEachNetwork((network) => {
-      for (const house of network.houses.slice(0, 20)) {
-        const front = { x: house.x + forward(house.heading).x * house.depth, z: house.z + forward(house.heading).z * house.depth };
-        const nearest = Math.min(...network.roads.map((road) => project(road.centreline, house).distance));
-        const nearestFromFront = Math.min(...network.roads.map((road) => project(road.centreline, front).distance));
-        expect(nearestFromFront).toBeLessThan(nearest);
       }
     });
   });

@@ -70,8 +70,8 @@ describe('location line in the debug panel', () => {
   });
 
   it('sums up the town', () => {
-    const summary = describeMap(buildNetwork('debug-summary'));
-    expect(summary).toMatch(/^T \d+ \/ cross \d+ \/ roundabout \d+ \/ \d+ roads \/ \d+ houses/);
+    const summary = describeMap(buildNetwork('debug-summary'), { items: [], sightTriangles: [], signCorridors: [] });
+    expect(summary).toMatch(/^T \d+ \/ cross \d+ \/ roundabout \d+ \/ \d+ roads \/ 0 houses/);
   });
 });
 
