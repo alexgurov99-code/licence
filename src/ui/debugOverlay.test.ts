@@ -3,14 +3,18 @@ import { createGlanceState } from '../camera/glance';
 import { planRoute } from '../route/planner';
 import { buildRoute } from '../route/route';
 import { createTracker } from '../route/tracker';
+import { createRulesState } from '../rules/engine';
+import type { Fault } from '../rules/types';
 import { buildNetwork } from '../world/network';
 import {
+  describeFault,
   describeGlanceEvent,
   describeMap,
   describeRouteEvent,
   formatGlance,
   formatLocation,
   formatRoute,
+  formatRules,
   maneuverName,
 } from './debugOverlay';
 
@@ -95,5 +99,36 @@ describe('route lines in the debug panel', () => {
     const line = route.zones.find((z) => z.kind === 'signalOff')!;
     expect(describeRouteEvent({ type: 'lineCrossed', zone: line })).toBe(`crossed indicator-off line (#${line.maneuver})`);
     expect(describeRouteEvent({ type: 'arrived' })).toBe('arrived');
+  });
+});
+
+describe('rules lines in the debug panel', () => {
+  const fault: Fault = {
+    id: 0,
+    kind: 'noSignal',
+    severity: 'critical',
+    time: 12.34,
+    at: { x: 0, z: 0 },
+    maneuver: 3,
+    what: 'No left indicator for the left turn.',
+    correct: 'Indicate left.',
+  };
+
+  it('describes a fault in one line', () => {
+    expect(describeFault(fault)).toBe('CRITICAL #3: No left indicator for the left turn.');
+    expect(describeFault({ ...fault, severity: 'immediateFail', maneuver: null })).toBe(
+      'IMMEDIATE FAIL: No left indicator for the left turn.',
+    );
+  });
+
+  it('shows the result so far, the indicator and the latest faults', () => {
+    const rules = { ...createRulesState(), faults: [fault, { ...fault, id: 1, severity: 'minor' as const }] };
+    const lines = formatRules({ ...rules, signals: { ...rules.signals, side: 'left', since: 10 } }, 12, 2);
+    expect(lines[0]).toBe('rules    PASS · fail 0 / critical 1 / minor 1');
+    expect(lines[1]).toContain('indicator left on 2.0s');
+    expect(lines.slice(2)).toEqual([
+      '  12.3s CRITICAL #3: No left indicator for the left turn.',
+      '  12.3s minor #3: No left indicator for the left turn.',
+    ]);
   });
 });
