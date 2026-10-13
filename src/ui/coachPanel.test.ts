@@ -37,7 +37,7 @@ describe('learner mode panel text', () => {
       { text: 'Indicate right E 1.4 / 3 s', state: 'now' },
       { text: 'Slow below 20 km/h, look both ways', state: 'todo' },
       { text: 'Turn right', state: 'todo' },
-      { text: 'Indicator off', state: 'todo' },
+      { text: 'Indicator off: Q / E again', state: 'todo' },
     ]);
     expect(text.warnings).toEqual(['Slow down: the limit is 50 km/h']);
   });

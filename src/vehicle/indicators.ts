@@ -1,6 +1,7 @@
 import { CONFIG, type IndicatorParams } from '../config';
 
 // Indicator stalk, hazard lights and the flasher. Pure logic, no Three.js.
+// The stalk does not cancel itself: the driver switches it off with the same key (Q / E).
 
 export type IndicatorSide = 'left' | 'right';
 
@@ -8,16 +9,11 @@ export interface IndicatorState {
   /** Position of the indicator stalk. */
   lever: IndicatorSide | null;
   hazard: boolean;
-  /**
-   * The steering has turned far enough towards the signalled side: the stalk will flip back
-   * by itself once the steering returns to the centre, like the cancelling cam in a real car.
-   */
-  armed: boolean;
   /** Seconds since the flasher started. Zero while nothing is flashing. */
   flasherTime: number;
 }
 
-export const INDICATORS_OFF: IndicatorState = { lever: null, hazard: false, armed: false, flasherTime: 0 };
+export const INDICATORS_OFF: IndicatorState = { lever: null, hazard: false, flasherTime: 0 };
 
 export function isFlashing(state: IndicatorState): boolean {
   return state.hazard || state.lever !== null;
@@ -25,7 +21,7 @@ export function isFlashing(state: IndicatorState): boolean {
 
 /** Q / E: switches the stalk to that side, or back to the middle if it is already there. */
 export function pressIndicator(state: IndicatorState, side: IndicatorSide): IndicatorState {
-  return withFlasher(state, { ...state, lever: state.lever === side ? null : side, armed: false });
+  return withFlasher(state, { ...state, lever: state.lever === side ? null : side });
 }
 
 /** H: hazard lights on or off. Works independently of the stalk. */
@@ -33,33 +29,9 @@ export function toggleHazard(state: IndicatorState): IndicatorState {
   return withFlasher(state, { ...state, hazard: !state.hazard });
 }
 
-/**
- * Advances the flasher and handles self-cancelling.
- * `steer` is the steering position from -1 (full right) to +1 (full left).
- */
-export function stepIndicators(
-  state: IndicatorState,
-  steer: number,
-  dt: number,
-  params: IndicatorParams = CONFIG.indicators,
-): { state: IndicatorState; autoCancelled: IndicatorSide | null } {
-  let { lever, armed } = state;
-  let autoCancelled: IndicatorSide | null = null;
-
-  if (lever) {
-    const towardsSignal = lever === 'left' ? steer : -steer;
-    if (towardsSignal >= params.selfCancelArmSteer) {
-      armed = true;
-    } else if (armed && towardsSignal <= params.selfCancelReleaseSteer) {
-      autoCancelled = lever;
-      lever = null;
-      armed = false;
-    }
-  }
-
-  const next: IndicatorState = { ...state, lever, armed };
-  next.flasherTime = isFlashing(next) ? state.flasherTime + dt : 0;
-  return { state: next, autoCancelled };
+/** Advances the flasher. */
+export function stepIndicators(state: IndicatorState, dt: number): IndicatorState {
+  return { ...state, flasherTime: isFlashing(state) ? state.flasherTime + dt : 0 };
 }
 
 /** Whether the flasher is in the "lit" half of its cycle. */

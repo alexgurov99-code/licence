@@ -139,20 +139,12 @@ describe('indicators', () => {
 
     const over = step(s, [{ type: 'indicator', side: 'right' }]);
     expect(over.events).toEqual([
-      { type: 'indicatorOff', side: 'left', auto: false },
+      { type: 'indicatorOff', side: 'left' },
       { type: 'indicatorOn', side: 'right' },
     ]);
 
     const off = step(over.state, [{ type: 'indicator', side: 'right' }]);
-    expect(off.events).toEqual([{ type: 'indicatorOff', side: 'right', auto: false }]);
-  });
-
-  it('report self-cancelling as automatic', () => {
-    let s = step(createCarControls(), [{ type: 'indicator', side: 'left' }]).state;
-    s = step(s, [], NO_KEYS, { speed: 3, steer: 0.9 }).state;
-    const { state, events } = step(s, [], NO_KEYS, { speed: 3, steer: 0 });
-    expect(state.indicators.lever).toBeNull();
-    expect(events).toEqual([{ type: 'indicatorOff', side: 'left', auto: true }]);
+    expect(off.events).toEqual([{ type: 'indicatorOff', side: 'right' }]);
   });
 
   it('report hazards', () => {

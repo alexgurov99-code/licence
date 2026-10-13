@@ -85,7 +85,7 @@ function stepText(step: CoachStep, m: Maneuver): string {
     case 'exitSignal':
       return `Indicate left ${k('indicatorLeft')} after the exit before yours`;
     case 'cancelSignal':
-      return 'Indicator off';
+      return `Indicator off: ${k('indicatorLeft')} / ${k('indicatorRight')} again`;
     case 'pullOver':
       return 'Stop by the kerb at the flag';
     case 'park':

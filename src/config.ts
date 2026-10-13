@@ -35,12 +35,10 @@ export const CONFIG = {
     rollingDeceleration: 0.3,
     /** Air resistance: slow-down = airDrag × speed². About 0.2 m/s² at 100 km/h. */
     airDrag: 0.0003,
-    /** Slow-down from the engine when the accelerator is released in D or R above walking pace. */
+    /** Slow-down from the engine when the accelerator is released in D or R... */
     engineBraking: 0.35,
-    /** Automatic "creep": with the engine running in D or R and no pedals pressed, the car rolls at this speed. */
-    creepSpeed: kmh(6),
-    /** How briskly the car picks up creep speed from a standstill. */
-    creepAcceleration: 1.2,
+    /** ...fading out below this speed. There is no automatic "creep": the car moves only on the accelerator. */
+    engineBrakingFadeSpeed: kmh(5),
 
     /** Front wheel angle at full lock. */
     maxSteerAngle: 0.55,
@@ -67,10 +65,6 @@ export const CONFIG = {
   indicators: {
     /** One full on + off cycle. 0.7 s is about 85 flashes per minute (the allowed range for cars is 60–120). */
     flashPeriodSeconds: 0.7,
-    /** Self-cancel: the steering must first turn at least this far towards the signalled side (share of full lock)... */
-    selfCancelArmSteer: 0.3,
-    /** ...and then come back to within this much of the centre. Smaller steering, e.g. a lane change, does not cancel. */
-    selfCancelReleaseSteer: 0.08,
   },
 
   cabin: {
