@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CONFIG, type CabinParams } from '../config';
+import { glassQuaternion, MIRROR_IDS, type MirrorAims, type MirrorId } from '../camera/mirrorOptics';
+import { CONFIG, type CabinParams, type MirrorSpec } from '../config';
 
 // Car interior seen from the driver's seat, built from simple shapes. Coordinates are the car's
 // own: +Z forward, +X to the car's left, Y up from the ground. NZ cars are right-hand drive, so
@@ -13,8 +14,8 @@ const COLORS = {
   wheel: 0x141517,
   wheelMarker: 0xc9ced4,
   mirrorHousing: 0x1d1f22,
-  /** Placeholder until the mirrors get a live picture (stage 2). */
-  mirrorGlass: 0x9fb4c8,
+  /** Mirrors reflect a little less light than they get. */
+  mirrorGlass: 0xdedede,
 };
 
 const STEERING_WHEEL = {
@@ -31,11 +32,16 @@ export class CabinMesh {
   readonly root = new THREE.Group();
   private readonly steeringSpin = new THREE.Group();
   private readonly clusterTexture: THREE.CanvasTexture;
+  /** Each mirror turns about the centre of its glass. */
+  private readonly mirrors: Record<MirrorId, THREE.Group>;
+  private readonly mirrorGlasses: THREE.Mesh[] = [];
 
   constructor(
     clusterCanvas: HTMLCanvasElement,
     maxAnisotropy: number,
+    mirrorTextures: Readonly<Record<MirrorId, THREE.Texture>>,
     private readonly cabin: CabinParams = CONFIG.cabin,
+    mirrorSpecs: Readonly<Record<MirrorId, MirrorSpec>> = CONFIG.mirrors,
   ) {
     this.root.name = 'cabin';
     const material = (color: number): THREE.MeshStandardMaterial =>
@@ -55,7 +61,8 @@ export class CabinMesh {
     // Window frame: A-pillars, roof, B- and C-pillars.
     for (const side of [-1, 1]) {
       this.root.add(beam(v(side * 0.72, 1.0, 0.68), v(side * 0.67, 1.44, 0.14), 0.07, 0.1, trim));
-      this.root.add(beam(v(side * 0.73, 1.0, -0.62), v(side * 0.71, 1.45, -0.6), 0.07, 0.14, trim));
+      // The B-pillar is beside the driver's shoulder, so a look over the shoulder sees past it.
+      this.root.add(beam(v(side * 0.73, 1.0, -0.46), v(side * 0.71, 1.45, -0.44), 0.07, 0.14, trim));
       this.root.add(beam(v(side * 0.73, 1.0, -1.3), v(side * 0.68, 1.45, -1.2), 0.07, 0.16, trim));
     }
     this.add(block(1.44, 0.06, 0.12, trim), 0, 1.44, 0.12);
@@ -90,8 +97,12 @@ export class CabinMesh {
     this.root.add(display);
 
     this.root.add(this.buildSteeringWheel(driverX));
-    this.root.add(this.buildRearViewMirror());
-    for (const side of [-1, 1] as const) this.root.add(this.buildSideMirror(side));
+    this.mirrors = {
+      interior: this.buildRearViewMirror(mirrorSpecs.interior, mirrorTextures.interior),
+      left: this.buildSideMirror(mirrorSpecs.left, mirrorTextures.left),
+      right: this.buildSideMirror(mirrorSpecs.right, mirrorTextures.right),
+    };
+    for (const id of MIRROR_IDS) this.root.add(this.mirrors[id]);
   }
 
   /** Turns the steering wheel to match the front wheels (steer: -1 full right .. +1 full left). */
@@ -104,6 +115,18 @@ export class CabinMesh {
   /** Call after the instrument cluster canvas was redrawn. */
   refreshCluster(): void {
     this.clusterTexture.needsUpdate = true;
+  }
+
+  setMirrorAims(aims: MirrorAims): void {
+    for (const id of MIRROR_IDS) this.mirrors[id].quaternion.copy(glassQuaternion(aims[id]));
+  }
+
+  /**
+   * The glass has to be hidden while the mirror pictures are drawn: a texture cannot be drawn
+   * into while it is also on screen.
+   */
+  setMirrorGlassVisible(visible: boolean): void {
+    for (const glass of this.mirrorGlasses) glass.visible = visible;
   }
 
   private add(mesh: THREE.Mesh, x: number, y: number, z: number): THREE.Mesh {
@@ -149,39 +172,49 @@ export class CabinMesh {
     return tilted;
   }
 
-  private buildRearViewMirror(): THREE.Group {
+  private buildRearViewMirror(spec: MirrorSpec, texture: THREE.Texture): THREE.Group {
     const group = new THREE.Group();
-    group.position.set(0, 1.36, 0.34);
-    // Angled towards the driver on the right.
-    group.rotation.y = 0.18;
+    group.position.set(spec.x, spec.y, spec.z);
     const housing = new THREE.MeshStandardMaterial({ color: COLORS.mirrorHousing, roughness: 0.7 });
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.035), housing));
-    const glass = mirrorGlass(0.24, 0.065);
-    glass.position.z = -0.0185;
-    group.add(glass);
+    // The glass is at the group's centre facing back; the housing is in front of it.
+    const depth = 0.035;
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(spec.width + 0.02, spec.height + 0.015, depth), housing);
+    shell.position.z = depth / 2 + 0.001;
+    group.add(shell);
+    group.add(this.buildGlass(spec, texture));
     const stem = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.07, 0.02), housing);
-    stem.position.set(0, 0.06, 0.01);
+    stem.position.set(0, spec.height / 2 + 0.03, depth / 2);
     group.add(stem);
     return group;
   }
 
-  /** side: +1 = the car's left (passenger side), -1 = right (driver's side). */
-  private buildSideMirror(side: 1 | -1): THREE.Group {
+  private buildSideMirror(spec: MirrorSpec, texture: THREE.Texture): THREE.Group {
+    // +1 = the car's left (passenger side), -1 = right (driver's side).
+    const side = Math.sign(spec.x);
     const group = new THREE.Group();
-    group.position.set(side * 0.98, 1.03, 0.6);
-    // Turned so the glass faces the driver; the far (left) mirror needs a bigger angle.
-    group.rotation.y = side > 0 ? 0.5 : -0.3;
+    group.position.set(spec.x, spec.y, spec.z);
     const housing = new THREE.MeshStandardMaterial({ color: COLORS.mirrorHousing, roughness: 0.7 });
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.09), housing);
+    const depth = 0.09;
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(spec.width + 0.03, spec.height + 0.025, depth), housing);
+    shell.position.z = depth / 2 + 0.001;
     shell.castShadow = true;
     group.add(shell);
-    const glass = mirrorGlass(0.17, 0.095);
-    glass.position.z = -0.046;
-    group.add(glass);
+    group.add(this.buildGlass(spec, texture));
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.05), housing);
-    arm.position.set(-side * 0.13, -0.03, 0.01);
+    arm.position.set(-side * (spec.width / 2 + 0.04), -0.03, depth / 2 + 0.01);
     group.add(arm);
     return group;
+  }
+
+  private buildGlass(spec: MirrorSpec, texture: THREE.Texture): THREE.Mesh {
+    const glass = new THREE.Mesh(
+      new THREE.PlaneGeometry(spec.width, spec.height),
+      new THREE.MeshBasicMaterial({ map: texture, color: COLORS.mirrorGlass }),
+    );
+    // Planes face +Z; the glass faces backwards, towards the driver.
+    glass.rotation.y = Math.PI;
+    this.mirrorGlasses.push(glass);
+    return glass;
   }
 }
 
@@ -206,14 +239,4 @@ function beam(
   mesh.position.copy(from).add(to).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
   return mesh;
-}
-
-function mirrorGlass(width: number, height: number): THREE.Mesh {
-  const glass = new THREE.Mesh(
-    new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color: COLORS.mirrorGlass }),
-  );
-  // Planes face +Z; the glass faces backwards, towards the driver.
-  glass.rotation.y = Math.PI;
-  return glass;
 }

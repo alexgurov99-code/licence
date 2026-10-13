@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readHeldKeys, takeCommands, type ActionSource } from './carInput';
+import { readGlanceKeys, readHeldKeys, takeCommands, type ActionSource } from './carInput';
 import { keyLabel, type Action } from './keymap';
 
 function fakeKeys(down: Action[], pressed: Action[]): ActionSource {
@@ -17,6 +17,15 @@ describe('car input', () => {
       brake: true,
       steerLeft: true,
       steerRight: false,
+    });
+  });
+
+  it('reads the held look keys', () => {
+    expect(readGlanceKeys(fakeKeys(['lookDown', 'lookRight', 'throttle'], []))).toEqual({
+      up: false,
+      down: true,
+      left: false,
+      right: true,
     });
   });
 
@@ -38,5 +47,7 @@ describe('keyLabel', () => {
     expect(keyLabel('handbrake')).toBe('Space');
     expect(keyLabel('engine')).toBe('Enter');
     expect(keyLabel('toggleDebug')).toBe('`');
+    expect(keyLabel('lookUp')).toBe('↑');
+    expect(keyLabel('lookLeft')).toBe('←');
   });
 });

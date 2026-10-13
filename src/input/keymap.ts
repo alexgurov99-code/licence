@@ -19,6 +19,10 @@ export const KEYMAP = {
   gearD: ['Digit4', 'Numpad4'],
   engine: ['Enter', 'NumpadEnter'],
   belt: ['KeyB'],
+  lookUp: ['ArrowUp'],
+  lookDown: ['ArrowDown'],
+  lookLeft: ['ArrowLeft'],
+  lookRight: ['ArrowRight'],
   toggleView: ['KeyC'],
   toggleDebug: ['Backquote'],
 } as const satisfies Record<string, readonly string[]>;
@@ -29,6 +33,10 @@ const SPECIAL_LABELS: Record<string, string> = {
   Backquote: '`',
   Space: 'Space',
   Enter: 'Enter',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
 };
 
 /** Human-readable name of the key bound to an action, for hints such as "Hold the brake (S)". */
