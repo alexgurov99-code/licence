@@ -77,7 +77,7 @@ export const CONFIG = {
     /** NZ cars are right-hand drive: the driver sits on the right, which is -X in car coordinates. */
     driverX: -0.37,
     /** Driver's eye point, relative to the ground under the car's centre. */
-    eyeHeight: 1.2,
+    eyeHeight: 1.26,
     eyeZ: -0.25,
     /** Steering wheel turns from centre to full lock (real cars: about 1.5). */
     steeringWheelTurns: 1.25,
@@ -136,7 +136,7 @@ export const CONFIG = {
       fov: 62,
       near: 0.05,
       /** Slight downward tilt so the road, bonnet and instruments are all in view. */
-      pitch: -0.12,
+      pitch: -0.17,
     },
   },
 
