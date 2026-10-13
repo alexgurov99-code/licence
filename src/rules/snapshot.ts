@@ -20,6 +20,10 @@ export function rulesSnapshot(
     time,
     position: { x: motion.x, z: motion.z },
     speed: motion.speed,
+    gear: controls.gear,
+    handbrake: controls.handbrake,
+    engineOn: controls.engineOn,
+    beltFastened: controls.beltFastened,
     // With the hazard lights on, both sides flash: that is not a signal to turn.
     indicator: indicators.hazard ? null : indicators.lever,
     lastChecked: glance.lastChecked,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG } from '../config';
+import { normalizeAngle } from '../util/math';
 import { locate } from '../world/locate';
 import { buildNetwork, type RoadNetwork } from '../world/network';
 import { distance, pathStart, pointAt, project } from '../world/path';
@@ -233,5 +234,22 @@ describe('rerouting', () => {
       check(distance(detour.finish, route.finish) < 1e-6, 'finish moved');
       check(distance(pathStart(detour.path), pointAt(network.lanes[lastLane]?.path ?? route.path, route.plan.endS + 20)) < 1e-6, 'start');
     });
+  });
+});
+
+describe('bends of the road', () => {
+  it('are the quarter turns of bend tiles, between junctions, the way the route turns', () => {
+    let count = 0;
+    forEachRoute((route) => {
+      for (const bend of route.bends) {
+        count += 1;
+        const turned = normalizeAngle(pointAt(route.path, bend.to).heading - pointAt(route.path, bend.from).heading);
+        check(Math.abs(Math.abs(turned) - Math.PI / 2) < 0.05 || bend.from === 0, `bend turns ${turned.toFixed(2)}`);
+        check((turned > 0) === (bend.side === 'left'), 'bend goes the other way');
+        const inJunction = route.maneuvers.some((m) => m.junctionId !== null && bend.to > m.start && bend.from < m.end);
+        check(!inJunction, 'bend inside a junction');
+      }
+    });
+    expect(count).toBeGreaterThan(20);
   });
 });

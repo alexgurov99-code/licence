@@ -17,7 +17,7 @@ import { RouteMesh } from './route/routeMesh';
 import { createTracker, stepTracker } from './route/tracker';
 import { createRulesState, stepRules, type RulesState } from './rules/engine';
 import { rulesSnapshot } from './rules/snapshot';
-import { summarizeFaults } from './rules/types';
+import { summarizeFaults, type RulesSnapshot } from './rules/types';
 import './style.css';
 import {
   DebugOverlay,
@@ -27,6 +27,8 @@ import {
   describeMap,
   describeRouteEvent,
 } from './ui/debugOverlay';
+import { coach } from './rules/coach';
+import { CoachPanel } from './ui/coachPanel';
 import { FaultFeed } from './ui/faultFeed';
 import { FpsCounter } from './ui/fpsCounter';
 import { GlancePopups } from './ui/glancePopups';
@@ -131,6 +133,9 @@ function start(container: HTMLElement): void {
   const popups = new GlancePopups(container, { mirrors: mirrorCameras.textures, look: lookCamera.texture });
   const messages = new MessageBanner(container);
   const faultFeed = new FaultFeed(container);
+  const coachPanel = new CoachPanel(container);
+  // Learner mode (hints) is on until switched to exam mode; the choice is remembered.
+  let learner = readLearnerMode();
   const minimap = new Minimap(container);
   minimap.setNetwork(network, scenery);
   minimap.setRoute(route);
@@ -166,6 +171,7 @@ function start(container: HTMLElement): void {
   let glance = createGlanceState();
   let tracker = createTracker(route, car.motion);
   let rules = createRulesState();
+  let lastSnapshot: RulesSnapshot | null = null;
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
@@ -200,12 +206,18 @@ function start(container: HTMLElement): void {
       previousMotion = car.motion;
       tracker = createTracker(route, car.motion);
       rules = createRulesState();
+      lastSnapshot = null;
       faultFeed.clear();
       pendingCommands = [];
       chaseCamera.snapTo(car.motion);
       recentEvents.push(`${simTime.toFixed(1)}s  new map, seed ${network.seed}`);
     }
     if (keyboard.takePressed('toggleMap')) minimap.toggleLarge();
+    if (keyboard.takePressed('toggleLearner')) {
+      learner = !learner;
+      saveLearnerMode(learner);
+      messages.show(learner ? 'Learner mode: hints show what to do next' : 'Exam mode: no hints');
+    }
     if (keyboard.takePressed('toggleView')) {
       view = view === 'firstPerson' ? 'chase' : 'firstPerson';
       applyView();
@@ -243,13 +255,15 @@ function start(container: HTMLElement): void {
       }
       // The rules engine judges this step: the car, the glances and where it is on the route and the road.
       const where = locate(network, car.motion, car.motion.heading);
-      const rulesResult = stepRules(rules, rulesSnapshot(simTime, car, glance, tracker, where), routeResult.events);
+      const snapshot = rulesSnapshot(simTime, car, glance, tracker, where);
+      const rulesResult = stepRules(rules, snapshot, routeResult.events);
       const justFinished = rulesResult.state.finished && !rules.finished;
       rules = rulesResult.state;
       if (justFinished) messages.show(`Route complete: ${resultLine(rules.faults)}`, 3 * CONFIG.ui.messageSeconds);
+      lastSnapshot = snapshot;
       for (const fault of rulesResult.faults) {
         recentEvents.push(`${simTime.toFixed(1)}s  ${describeFault(fault)}`);
-        faultFeed.show(fault);
+        faultFeed.show(fault, learner);
       }
       accumulator -= step;
       steps += 1;
@@ -280,6 +294,7 @@ function start(container: HTMLElement): void {
 
     popups.update(view, glance, frameSeconds);
     minimap.update(pose, tracker, currentInstruction(tracker));
+    coachPanel.update(learner && lastSnapshot ? coach(lastSnapshot, rules) : null);
 
     renderer.info.reset();
     // Shadows are worked out once, in the first pass, and reused by the other passes of the frame.
@@ -364,11 +379,31 @@ function addControlsHint(container: HTMLElement): void {
       `${k(GEAR_ACTIONS.P)} ${k(GEAR_ACTIONS.R)} ${k(GEAR_ACTIONS.N)} ${k(GEAR_ACTIONS.D)} gears P R N D`,
     `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake · ${k('belt')} belt`,
     `${k('indicatorLeft')} ${k('indicatorRight')} indicators · ${k('hazard')} hazards · ` +
-      `${k('toggleView')} view · ${k('toggleMap')} map · ${k('toggleDebug')} debug (${k('newMap')} new map)`,
+      `${k('toggleView')} view · ${k('toggleMap')} map · ${k('toggleLearner')} learner / exam mode · ` +
+      `${k('toggleDebug')} debug (${k('newMap')} new map)`,
     `hold ${k('lookUp')} ${k('lookLeft')} ${k('lookRight')} mirrors · ${k('lookDown')} look back · ` +
       `${k('lookDown')}+${k('lookLeft')} ${k('lookDown')}+${k('lookRight')} over the shoulder`,
   ].join('\n');
   container.appendChild(hint);
+}
+
+const LEARNER_KEY = 'nz-driving.learnerMode';
+
+/** Browser storage may be unavailable (private window): learner mode is then simply on. */
+function readLearnerMode(): boolean {
+  try {
+    return window.localStorage.getItem(LEARNER_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function saveLearnerMode(on: boolean): void {
+  try {
+    window.localStorage.setItem(LEARNER_KEY, on ? 'on' : 'off');
+  } catch {
+    // Not remembered; nothing else to do.
+  }
 }
 
 function seedFromAddress(): string | null {

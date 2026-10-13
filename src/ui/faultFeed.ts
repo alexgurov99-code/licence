@@ -24,12 +24,18 @@ export class FaultFeed {
     parent.appendChild(this.element);
   }
 
-  show(fault: Fault): void {
+  /** `advice`: also say how it should have been done (learner mode). */
+  show(fault: Fault, advice = false): void {
     const item = document.createElement('div');
     item.className = `fault-item ${fault.severity}`;
     const label = document.createElement('strong');
     label.textContent = SEVERITY_LABELS[fault.severity];
     item.append(label, ` ${fault.what}`);
+    if (advice) {
+      const correct = document.createElement('small');
+      correct.textContent = fault.correct;
+      item.appendChild(correct);
+    }
     this.element.appendChild(item);
     this.items.push({ element: item, remaining: this.seconds });
     while (this.items.length > this.shown) this.items.shift()?.element.remove();

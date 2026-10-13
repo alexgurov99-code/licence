@@ -110,8 +110,8 @@ export function noMirrorCheck(m: Maneuver, side: Side): FaultDraft {
     kind: 'noMirrorCheck',
     severity: 'minor',
     maneuver: m.index,
-    what: `No mirror check before indicating for ${maneuverPhrase(m)}.`,
-    correct: `Check the rear-view or ${side} mirror first, then signal.`,
+    what: `No mirror check before indicating ${side} for ${maneuverPhrase(m)}.`,
+    correct: `Look in the rear-view or ${side} mirror (hold it until the frame turns green) just before you indicate.`,
   };
 }
 

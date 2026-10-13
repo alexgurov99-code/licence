@@ -2,7 +2,7 @@ import { createGlanceState, type GlanceTarget } from '../camera/glance';
 import { CONFIG } from '../config';
 import { planRoute } from '../route/planner';
 import { buildRoute, kerbOffset, type Maneuver, type Route, type Side } from '../route/route';
-import { createTracker, stepTracker, type RouteTracker } from '../route/tracker';
+import { createTracker, stepTracker, type RouteEvent, type RouteTracker } from '../route/tracker';
 import { createCar } from '../vehicle/car';
 import { INDICATORS_OFF } from '../vehicle/indicators';
 import { locate } from '../world/locate';
@@ -10,7 +10,7 @@ import { buildNetwork, type RoadNetwork } from '../world/network';
 import { add, leftOf, pointAt } from '../world/path';
 import { createRulesState, stepRules, type RulesState } from './engine';
 import { rulesSnapshot } from './snapshot';
-import type { Fault } from './types';
+import type { Fault, RulesSnapshot } from './types';
 
 // Test helper: a scripted driver that follows a route the way the NZ test expects (mirrors,
 // signal, shoulder check, stops at Stop signs, slows for Give Way, keeps to the limit), with
@@ -41,7 +41,11 @@ export interface Habits {
   offset?: (ideal: number, ctx: DriveContext) => number;
   /** Look in the mirror just before each signal, and over the right shoulder before pulling out. */
   mirrors?: boolean;
+  /** An extra glance being held now (counted straight away). */
+  glance?: (ctx: DriveContext) => GlanceTarget | null;
   shoulder?: boolean;
+  /** Called after every step with what the rules engine saw. */
+  onStep?: (snap: RulesSnapshot, rules: RulesState, events: readonly RouteEvent[]) => void;
   /** Stop at Stop lines. */
   stops?: boolean;
 }
@@ -116,6 +120,8 @@ export function drive(seed: string, habits: Habits = {}, maxSeconds = 600): Driv
     if (wanted !== lever && wanted && mirrors && !parked) look('interiorMirror', time);
     if (parked && mirrors && time >= 0.5 && time < 0.6) look('interiorMirror', time);
     if (parked && shoulder && time >= 4.5 && time < 4.6) look('rightShoulder', time);
+    const extra = habits.glance?.(ctx);
+    if (extra) look(extra, time);
     lever = wanted;
 
     // Speed: a little under the limit, slow through junctions, stop at Stop lines and at the end.
@@ -147,12 +153,19 @@ export function drive(seed: string, habits: Habits = {}, maxSeconds = 600): Driv
     const pose = { ...add(p, leftOf(p.heading), offset), heading: p.heading };
     const car = createCar({
       motion: { x: pose.x, z: pose.z, heading: pose.heading, speed },
-      controls: { indicators: { ...INDICATORS_OFF, lever } },
+      controls: {
+        indicators: { ...INDICATORS_OFF, lever },
+        engineOn: true,
+        beltFastened: true,
+        gear: parked ? 'P' : 'D',
+        handbrake: parked,
+      },
     });
     const step = stepTracker(tracker, { ...pose, speed }, DT, network);
     tracker = step.tracker;
     const snap = rulesSnapshot(time, car, glance, tracker, locate(network, pose, pose.heading));
     rules = stepRules(rules, snap, step.events).state;
+    habits.onStep?.(snap, rules, step.events);
   }
   return { route, tracker, rules, faults: rules.faults };
 }

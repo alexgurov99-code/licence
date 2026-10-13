@@ -211,6 +211,24 @@ describe('satnav instructions', () => {
     expect(currentInstruction(tracker).text).not.toMatch(/^In /);
   });
 
+  it('say a bend of the road before the next junction first', () => {
+    for (let i = 0; i < 30; i++) {
+      const { network, route } = setup(`tracker-bend-${i}`);
+      const bend = route.bends.find((b) => b.from > 80);
+      if (!bend) continue;
+      const m = route.maneuvers.find((x) => x.start >= bend.to);
+      if (!m) continue;
+      const before = run(createTracker(route, network.start), routeDrive(route, bend.from - 60), network).tracker;
+      if (before.next !== m.index || before.nextStarted) continue;
+      expect(currentInstruction(before)).toMatchObject({ icon: 'bend', turn: bend.side });
+      expect(currentInstruction(before).text).toMatch(new RegExp(`^In \\d+ m the road bends ${bend.side}`));
+      const inside = run(createTracker(route, network.start), routeDrive(route, (bend.from + bend.to) / 2), network).tracker;
+      expect(currentInstruction(inside).text).toMatch(new RegExp(`^Follow the road round to the ${bend.side}`));
+      return;
+    }
+    throw new Error('no bend found to test');
+  });
+
   it('describe roundabout exits by number', () => {
     for (let i = 0; i < 20; i++) {
       const { network, route } = setup(`tracker-ra-${i}`);

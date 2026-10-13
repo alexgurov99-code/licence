@@ -343,6 +343,17 @@ export function drawInstructionIcon(ctx: CanvasRenderingContext2D, instruction: 
       arrowHead(20 + k * 11, 13, k === 1 ? 0 : Math.PI);
       break;
     }
+    case 'bend': {
+      // A wide sweep (a turn is a sharp corner).
+      const k = instruction.turn === 'left' ? -1 : 1;
+      ctx.beginPath();
+      ctx.moveTo(20 - k * 7, 35);
+      ctx.lineTo(20 - k * 7, 26);
+      ctx.bezierCurveTo(20 - k * 7, 14, 20 - k * 2, 11, 20 + k * 8, 11);
+      ctx.stroke();
+      arrowHead(20 + k * 10, 11, k === 1 ? 0 : Math.PI);
+      break;
+    }
     case 'straight':
       ctx.beginPath();
       ctx.moveTo(20, 34);

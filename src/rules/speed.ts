@@ -4,7 +4,8 @@ import type { FaultDraft, RulesSnapshot, Severity } from './types';
 
 // Speed against the limit. Over the limit: minor if a little and for a while; NZ restricted test:
 // 5 km/h over is a critical error, 10 over (or 5 over for 5 seconds) an immediate failure. One
-// fault per time over the limit, the worst it got. Too slow: 10 km/h under with no reason.
+// fault per time over the limit, the worst it got. Too slow: 10 km/h under with no reason (not
+// near a junction or a bend).
 
 const LEVELS: readonly (Severity | null)[] = [null, 'minor', 'critical', 'immediateFail'];
 
@@ -98,11 +99,13 @@ export function stepSpeed(
   return { state: s, faults };
 }
 
-/** Near junctions, pulling out or in, off the route or off the lane, slow driving has a reason. */
+/** Near junctions and bends, pulling out or in, off the route or off the lane, slow driving has a reason. */
 export function slowDrivingExpected(snap: RulesSnapshot, params: RulesParams['speed']): boolean {
   if (snap.offRoute || snap.arrived || snap.inJunction || snap.nextStarted) return true;
   if (!snap.road || snap.road.place !== 'lane') return true;
-  const { maneuvers } = snap.route;
+  const { maneuvers, bends } = snap.route;
+  const near = params.slowAroundBend;
+  if (bends.some((b) => snap.progress > b.from - near && snap.progress < b.to + near)) return true;
   const next = maneuvers[snap.next];
   if (!next || next.kind === 'pullOut') return true;
   if (next.start - snap.progress < params.slowBeforeManeuver) return true;

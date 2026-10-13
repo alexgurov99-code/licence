@@ -380,6 +380,8 @@ export const CONFIG = {
       /** Driving slowly is expected this close before a manoeuvre and after one. */
       slowBeforeManeuver: 50,
       slowAfterManeuver: 40,
+      /** ...and this close to a bend of the road (bend tiles are tight: about 35–40 km/h at most). */
+      slowAroundBend: 40,
     },
     position: {
       /** The middle of the car further right than this of the middle of its lane, for keepLeftSeconds: keep left. */
@@ -406,6 +408,8 @@ export const CONFIG = {
     /** Each fault shows on screen this long; at most this many at once. */
     faultSeconds: 6,
     faultsShown: 4,
+    /** Learner mode: the steps for the next manoeuvre light up this far before the indicator should go on. */
+    coachAheadDistance: 60,
     /** Windows that pop up while a look key is held. Sizes are shares of the screen width. */
     popups: {
       interiorMirrorWidth: 0.42,
@@ -442,6 +446,8 @@ export const CONFIG = {
     coarseFrom: 300,
     /** Two manoeuvres closer together than this are said together ("Turn left, then turn right"). */
     thenDistance: 60,
+    /** A bend of the road closer than this (and before the next manoeuvre) is said instead: "In 80 m the road bends left". */
+    bendAnnounceDistance: 120,
   },
 
   debug: {

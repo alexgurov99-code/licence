@@ -63,7 +63,7 @@ body {
 .message-banner {
   position: absolute;
   /* Set by the glance windows: below the rear-view mirror window in the view from behind. */
-  top: var(--hud-top, 16px);
+  top: calc(var(--hud-top, 16px) + var(--coach-height, 0px));
   z-index: 20;
   left: 50%;
   transform: translateX(-50%);
@@ -199,4 +199,73 @@ body {
 .fault-item.immediateFail {
   border-left-color: #ff3b3b;
   background: rgb(90 0 0 / 0.8);
+}
+
+.fault-item small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* Learner mode: the steps for the next manoeuvre, top centre. */
+.coach-panel {
+  position: absolute;
+  top: var(--hud-top, 16px);
+  left: 50%;
+  z-index: 19;
+  transform: translateX(-50%);
+  max-width: min(760px, calc(100% - 32px));
+  padding: 8px 12px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.68);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.coach-panel[hidden] {
+  display: none;
+}
+
+.coach-title {
+  margin-bottom: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.coach-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.coach-step {
+  padding: 3px 8px;
+  font-size: 13px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.6);
+}
+
+.coach-step.now {
+  color: #1d1d1d;
+  background: #ffcf4a;
+  font-weight: 600;
+}
+
+.coach-step.done {
+  color: #fff;
+  background: rgb(52 168 96 / 0.75);
+}
+
+.coach-step.missed {
+  color: #fff;
+  background: rgb(210 60 50 / 0.8);
+}
+
+.coach-warning {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ff8a7a;
 }
