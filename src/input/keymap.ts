@@ -25,6 +25,8 @@ export const KEYMAP = {
   lookRight: ['ArrowRight'],
   toggleView: ['KeyC'],
   toggleDebug: ['Backquote'],
+  /** Debug mode only: build a new town from a random seed. */
+  newMap: ['KeyN'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type Action = keyof typeof KEYMAP;

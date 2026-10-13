@@ -1,6 +1,8 @@
 import { CONFIG, type VehicleParams } from '../config';
-import { clamp, lerp, moveTowards } from '../util/math';
+import { clamp, lerp, moveTowards, normalizeAngle } from '../util/math';
 import { driveAcceleration, type Gear } from './gearbox';
+
+export { normalizeAngle };
 
 // Pure vehicle motion: no Three.js, no DOM. Same input sequence always gives the same result.
 //
@@ -120,12 +122,4 @@ export function interpolatePose(previous: VehicleState, current: VehicleState, a
     speed: lerp(previous.speed, current.speed, t),
     steer: lerp(previous.steer, current.steer, t),
   };
-}
-
-export function normalizeAngle(angle: number): number {
-  const twoPi = Math.PI * 2;
-  let a = angle % twoPi;
-  if (a <= -Math.PI) a += twoPi;
-  if (a > Math.PI) a -= twoPi;
-  return a;
 }

@@ -1,10 +1,17 @@
 import type { GlanceEvent, GlanceState, GlanceTarget } from '../camera/glance';
+import { keyLabel } from '../input/keymap';
 import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
+import type { Whereabouts } from '../world/locate';
+import type { RoadNetwork } from '../world/network';
 
 export interface DebugInfo {
   fps: number;
   seed: string | null;
+  /** One line about the town (see describeMap). */
+  map: string;
+  /** Where the car is on the road network. */
+  location: Whereabouts;
   view: string;
   /** Simulation time, seconds. */
   simTime: number;
@@ -59,7 +66,9 @@ export function formatDebugInfo(info: DebugInfo): string {
   const indicator = c.indicators.lever ? `${c.indicators.lever}${c.indicators.armed ? ' (armed)' : ''}` : 'off';
   return [
     `FPS      ${info.fps.toFixed(0)}`,
-    `seed     ${info.seed ?? '-'}`,
+    `seed     ${info.seed ?? '-'}   (${keyLabel('newMap')}: new map)`,
+    `map      ${info.map}`,
+    `where    ${formatLocation(info.location)}`,
     `view     ${info.view}`,
     `speed    ${(v.speed * 3.6).toFixed(1)} km/h`,
     `pos      x ${v.x.toFixed(1)}  z ${v.z.toFixed(1)} m`,
@@ -74,6 +83,32 @@ export function formatDebugInfo(info: DebugInfo): string {
     'events',
     ...info.recentEvents.map((line) => `  ${line}`),
   ].join('\n');
+}
+
+/** Road / lane / offset from the middle of the lane / speed limit, or the junction the car is in. */
+export function formatLocation(where: Whereabouts): string {
+  switch (where.kind) {
+    case 'road': {
+      const size = Math.abs(where.offset);
+      const offset = size < 0.005 ? 'centred' : `${size.toFixed(2)} m ${where.offset > 0 ? 'left' : 'right'}`;
+      const place = where.place === 'shoulder' ? ' (shoulder)' : where.place === 'oncoming' ? ' (ONCOMING SIDE)' : '';
+      return `road ${where.roadId} ${where.roadClass} / lane ${where.laneId} / ${offset}${place} / ${where.speedLimit} km/h`;
+    }
+    case 'junction':
+      return `junction ${where.junctionId} (${where.junctionKind})`;
+    case 'offRoad':
+      return 'off road';
+  }
+}
+
+/** Junction counts and size of the town, e.g. "T 7 / cross 3 / roundabout 2 / 16 roads / 220 houses". */
+export function describeMap(network: RoadNetwork): string {
+  const count = (kind: string): number => network.junctions.filter((j) => j.kind === kind).length;
+  const retried = network.layout.attempt > 0 ? ` (retry ${network.layout.attempt})` : '';
+  return (
+    `T ${count('tee')} / cross ${count('cross')} / roundabout ${count('roundabout')} / ` +
+    `${network.roads.length} roads / ${network.houses.length} houses${retried}`
+  );
 }
 
 /** One-line description of a control event for the debug panel. */

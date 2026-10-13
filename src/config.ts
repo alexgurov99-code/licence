@@ -141,10 +141,123 @@ export const CONFIG = {
   },
 
   world: {
-    groundSize: 1000,
-    gridCellSize: 10,
+    /** The grass plane; larger than the town so its edge stays hidden in the fog. */
+    groundSize: 1400,
     fogNear: 150,
     fogFar: 700,
+
+    /** The town is a square grid of tiles. Each tile holds a straight, a bend, a junction or a roundabout. */
+    tilesPerSide: 5,
+    tileSize: 120,
+
+    /** One lane each way. */
+    laneWidth: 3.5,
+    /** Sealed strip outside each edge line where a car can stop or park. */
+    shoulderWidth: 2.5,
+    /** Radius of the middle of the road on bend tiles. */
+    bendRadius: 20,
+    /** T and cross junctions: the lanes (and the limit lines) end this far from the middle of the junction. */
+    junctionHalfSize: 9,
+
+    roundabout: {
+      /** Raised central island. */
+      islandRadius: 7,
+      /** Outer edge of the circulating road. */
+      outerRadius: 13,
+      /** Middle of the circulating lane. */
+      laneRadius: 10,
+      /** Radius of the curves that lead from an approach lane onto the circle and off it again. */
+      entryCurveRadius: 10,
+      /** Approach lanes end this far from the middle; the curves onto the circle start after that. */
+      approachRadius: 18,
+    },
+
+    /** Speed limits, km/h. */
+    speedLimits: {
+      normal: 50,
+      /** Sometimes one main road has a higher limit along its whole length... */
+      fastMainRoad: 60,
+      /** ...and one side street a lower one. */
+      slowStreet: 40,
+    },
+
+    generation: {
+      /** Share of side-street links removed at random (the town always stays connected, with no dead ends). */
+      minRemovedShare: 0.15,
+      maxRemovedShare: 0.3,
+      /** Chance of a second main road parallel to one of the first two. */
+      extraMainRoadChance: 0.35,
+      /** Chance that one crossing of two side streets becomes a roundabout too. */
+      extraRoundaboutChance: 0.3,
+      /** Share of controlled junctions with Stop signs; the rest get Give Way. */
+      stopChance: 0.3,
+      fastMainRoadChance: 0.5,
+      slowStreetChance: 0.5,
+      /** Every map has at least this many of each (and at least one roundabout). */
+      minTees: 3,
+      minCrosses: 2,
+      /** A map that misses the minimums is built again from the same seed with an attempt number. */
+      maxAttempts: 40,
+    },
+
+    /** Road markings (NZ: white broken centre line, white edge lines, 300 mm limit lines). */
+    markings: {
+      lineWidth: 0.1,
+      centreDash: 3,
+      centreGap: 7,
+      /** The centre line stops this far short of a junction. */
+      centreLineEndGap: 2,
+      limitLineWidth: 0.3,
+      /** Painted STOP or give-way triangle: distance from the limit line to its middle. */
+      symbolBeforeLimitLine: 6,
+      stopTextLength: 2.5,
+      stopTextWidth: 2.2,
+      triangleLength: 3.6,
+      triangleWidth: 1.6,
+    },
+
+    signs: {
+      /** Height of the middle of a sign above the road. */
+      height: 2.0,
+      /** Sideways gap between the outer edge of the shoulder and the post. */
+      verge: 0.8,
+      /** Stop and give-way signs stand this far before the limit line. */
+      beforeLimitLine: 1.5,
+      /** Speed limit signs stand this far into the road after a junction (NZ: within 20 m of the change). */
+      speedSignAfterJunction: 10,
+      /** Sizes across: Stop octagon, Give Way triangle side, speed limit disc. */
+      stopSize: 0.75,
+      giveWaySize: 0.9,
+      speedLimitSize: 0.6,
+      postWidth: 0.07,
+    },
+
+    houses: {
+      /** Distance between neighbouring houses along a road, centre to centre. */
+      minSpacing: 15,
+      maxSpacing: 22,
+      /** Width along the road, depth away from it, wall height. */
+      minWidth: 7,
+      maxWidth: 12,
+      minDepth: 8,
+      maxDepth: 12,
+      minHeight: 2.8,
+      maxHeight: 5.5,
+      /** Front yard: from the outer edge of the shoulder to the front wall. */
+      minSetback: 5,
+      maxSetback: 10,
+      /** No houses this close to the middle of a junction, so drivers can see along the side roads. */
+      junctionClearance: 26,
+      /** Smallest gap between a house and any road's shoulder, and between two houses. */
+      clearance: 2,
+    },
+
+    start: {
+      /** The car starts parked on the left shoulder, this far from its outer edge. */
+      kerbGap: 0.3,
+      /** At least this much straight road ahead of the start position. */
+      minRoomAhead: 50,
+    },
   },
 
   audio: {
@@ -185,6 +298,8 @@ export const CONFIG = {
 } as const;
 
 type NumberFields<T> = { readonly [K in keyof T]: number };
+/** The same shape as a config section, with any number allowed (tests use smaller or tweaked values). */
+type Widen<T> = { readonly [K in keyof T]: T[K] extends number ? number : Widen<T[K]> };
 
 export type VehicleParams = NumberFields<typeof CONFIG.vehicle>;
 export type ControlsParams = NumberFields<typeof CONFIG.controls>;
@@ -195,3 +310,4 @@ export type FirstPersonCameraParams = NumberFields<typeof CONFIG.camera.firstPer
 export type MirrorSpec = NumberFields<typeof CONFIG.mirrors.left>;
 export type GlanceParams = NumberFields<typeof CONFIG.glance>;
 export type PopupParams = NumberFields<typeof CONFIG.ui.popups>;
+export type WorldParams = Widen<typeof CONFIG.world>;

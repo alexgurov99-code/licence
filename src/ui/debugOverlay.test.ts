@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGlanceState } from '../camera/glance';
-import { describeGlanceEvent, formatGlance } from './debugOverlay';
+import { buildNetwork } from '../world/network';
+import { describeGlanceEvent, describeMap, formatGlance, formatLocation } from './debugOverlay';
 
 describe('glance lines in the debug panel', () => {
   it('shows the current glance and how long ago each check was done', () => {
@@ -26,5 +27,39 @@ describe('glance lines in the debug panel', () => {
     );
     expect(describeGlanceEvent({ type: 'glanceEnded', target: 'leftMirror', seconds: 1, counted: true })).toBeNull();
     expect(describeGlanceEvent({ type: 'glanceStarted', target: 'back' })).toBeNull();
+  });
+});
+
+describe('location line in the debug panel', () => {
+  const road = {
+    kind: 'road' as const,
+    roadId: 7,
+    roadClass: 'main' as const,
+    laneId: 14,
+    offset: 0.42,
+    place: 'lane' as const,
+    s: 30,
+    speedLimit: 60,
+  };
+
+  it('shows road / lane / offset from the middle of the lane / speed limit', () => {
+    expect(formatLocation(road)).toBe('road 7 main / lane 14 / 0.42 m left / 60 km/h');
+    expect(formatLocation({ ...road, offset: -0.3 })).toBe('road 7 main / lane 14 / 0.30 m right / 60 km/h');
+    expect(formatLocation({ ...road, offset: 0.001 })).toBe('road 7 main / lane 14 / centred / 60 km/h');
+  });
+
+  it('points out the shoulder and the wrong side of the road', () => {
+    expect(formatLocation({ ...road, offset: 2.5, place: 'shoulder' })).toContain('(shoulder)');
+    expect(formatLocation({ ...road, offset: -3.5, place: 'oncoming' })).toContain('(ONCOMING SIDE)');
+  });
+
+  it('names junctions and places off the road', () => {
+    expect(formatLocation({ kind: 'junction', junctionId: 3, junctionKind: 'roundabout' })).toBe('junction 3 (roundabout)');
+    expect(formatLocation({ kind: 'offRoad' })).toBe('off road');
+  });
+
+  it('sums up the town', () => {
+    const summary = describeMap(buildNetwork('debug-summary'));
+    expect(summary).toMatch(/^T \d+ \/ cross \d+ \/ roundabout \d+ \/ \d+ roads \/ \d+ houses/);
   });
 });
