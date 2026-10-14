@@ -110,6 +110,7 @@ describe('rules lines in the debug panel', () => {
     time: 12.34,
     at: { x: 0, z: 0 },
     maneuver: 3,
+    place: 'Left turn',
     what: 'No left indicator for the left turn.',
     correct: 'Indicate left.',
   };

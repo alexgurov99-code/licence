@@ -2,7 +2,7 @@ import { CONFIG } from '../config';
 import type { Fault, Severity } from '../rules/types';
 
 // Faults as they happen, in the top-right corner: the level and what happened. They fade after a
-// few seconds; the full list with the right way to do it comes on the results screen (stage 7).
+// few seconds; the full list with the right way to do it comes on the results screen.
 
 export const SEVERITY_LABELS: Record<Severity, string> = {
   immediateFail: 'Immediate fail',

@@ -1,9 +1,10 @@
 import type { Maneuver, Side } from '../route/route';
 import type { MirrorName } from '../vehicle/cockpitTypes';
+import { ordinal } from '../route/instructions';
 import type { FaultDraft } from './types';
 
 // What each fault says: what happened and how it would have been right. Shown on screen during
-// the drive and on the results screen (stage 7).
+// the drive and on the results screen.
 
 /** "the left turn", "the roundabout", "pulling out"... */
 export function maneuverPhrase(m: Maneuver): string {
@@ -20,6 +21,24 @@ export function maneuverPhrase(m: Maneuver): string {
       return 'going straight through the junction';
     case 'roundabout':
       return 'the roundabout';
+  }
+}
+
+/** "Left turn", "Roundabout, 2nd exit", "Pulling out"...: a heading for the results screen. */
+export function maneuverName(m: Maneuver): string {
+  switch (m.kind) {
+    case 'pullOut':
+      return 'Pulling out';
+    case 'pullOver':
+      return 'Pulling over';
+    case 'left':
+      return 'Left turn';
+    case 'right':
+      return 'Right turn';
+    case 'straight':
+      return 'Straight through';
+    case 'roundabout':
+      return `Roundabout, ${ordinal(m.exit ?? 1)} exit`;
   }
 }
 

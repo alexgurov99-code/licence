@@ -2,60 +2,19 @@ import { CONFIG, type MinimapParams, type WorldParams } from '../config';
 import type { Instruction } from '../route/instructions';
 import type { Route } from '../route/route';
 import type { RouteTracker } from '../route/tracker';
-import { dirVector } from '../world/layout';
 import type { RoadNetwork } from '../world/network';
 import type { Scenery } from '../world/scenery';
-import { add, forward, samplePath, type PathPoint, type Pose, type Vec2 } from '../world/path';
+import { add, forward, samplePath, type PathPoint, type Pose } from '../world/path';
+import { COLOURS, drawCar, drawFlag, drawTown, mapMatrix, polyline, toScreen, townMap, type MapView, type TownMap } from './mapDrawing';
+
+export { mapMatrix, toScreen, type MapView } from './mapDrawing';
 
 // The satnav in the corner: the town from above with the route, the car and the next manoeuvre
 // ("In 120 m turn left"). The small map turns with the car, so "left" on the map is always the
 // driver's left; the big map (M) shows the whole town with north up and the manoeuvres numbered.
 // Drawn with the 2D canvas.
 
-/** How world positions are laid out on a map canvas. */
-export interface MapView {
-  /** Pixel position (CSS pixels from the top-left corner) where `centre` is drawn. */
-  cx: number;
-  cy: number;
-  centre: Vec2;
-  /** Pixels per metre. */
-  scale: number;
-  /** This heading points up the screen. */
-  up: number;
-}
 
-/**
- * The 2D canvas transform [a, b, c, d, e, f] that draws world (x, z) at its place on the map.
- * Seen from above with heading 0 (+Z) up, +X (the left of a car facing +Z) is on the left.
- */
-export function mapMatrix(view: MapView): [number, number, number, number, number, number] {
-  const cos = Math.cos(view.up) * view.scale;
-  const sin = Math.sin(view.up) * view.scale;
-  const a = -cos;
-  const b = -sin;
-  const c = sin;
-  const d = -cos;
-  return [a, b, c, d, view.cx - a * view.centre.x - c * view.centre.z, view.cy - b * view.centre.x - d * view.centre.z];
-}
-
-export function toScreen(view: MapView, p: Vec2): { x: number; y: number } {
-  const [a, b, c, d, e, f] = mapMatrix(view);
-  return { x: a * p.x + c * p.z + e, y: b * p.x + d * p.z + f };
-}
-
-const COLOURS = {
-  background: 'rgba(28, 38, 32, 0.88)',
-  road: '#8b9097',
-  block: 'rgba(150, 156, 150, 0.32)',
-  island: 'rgba(28, 38, 32, 1)',
-  routeDone: 'rgba(80, 160, 255, 0.35)',
-  route: '#3d9bff',
-  car: '#ffffff',
-  carOutline: '#11161a',
-  next: '#ffffff',
-  number: '#3d9bff',
-  flag: '#ffffff',
-};
 
 export class Minimap {
   private readonly root: HTMLDivElement;
@@ -65,10 +24,7 @@ export class Minimap {
   private readonly canvas: HTMLCanvasElement;
   private large = false;
   private size = 0;
-  private network: RoadNetwork | null = null;
-  private roads: Vec2[][] = [];
-  /** Outlines of the sections and shops, drawn as grey blocks under the roads. */
-  private blocks: (readonly Vec2[])[] = [];
+  private town: TownMap | null = null;
   private route: Route | null = null;
   private routePoints: PathPoint[] = [];
   private iconKey = '';
@@ -102,9 +58,7 @@ export class Minimap {
   }
 
   setNetwork(network: RoadNetwork, scenery?: Scenery): void {
-    this.network = network;
-    this.blocks = (scenery?.items ?? []).filter((i) => i.kind === 'section' || i.kind === 'cornerShop').map((i) => i.footprint);
-    this.roads = network.roads.map((road) => samplePath(road.centreline, 0, road.centreline.length, 3));
+    this.town = townMap(network, scenery);
   }
 
   setRoute(route: Route): void {
@@ -124,10 +78,10 @@ export class Minimap {
       this.canvas.width = this.canvas.height = Math.round(size * dpr);
     }
     const ctx = this.canvas.getContext('2d');
-    if (!ctx || !this.network) return;
+    if (!ctx || !this.town) return;
 
     const view: MapView = this.large
-      ? { cx: size / 2, cy: size / 2, centre: { x: 0, z: 0 }, scale: size / (this.network.size + 40), up: 0 }
+      ? { cx: size / 2, cy: size / 2, centre: { x: 0, z: 0 }, scale: size / (this.town.network.size + 40), up: 0 }
       : { cx: size / 2, cy: size * this.params.carPosition, centre: car, scale: size / this.params.metresAcross, up: car.heading };
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -164,42 +118,7 @@ export class Minimap {
   }
 
   private drawRoads(ctx: CanvasRenderingContext2D): void {
-    const network = this.network;
-    if (!network) return;
-    ctx.fillStyle = COLOURS.block;
-    for (const block of this.blocks) {
-      ctx.beginPath();
-      polyline(ctx, block);
-      ctx.closePath();
-      ctx.fill();
-    }
-    const w = this.world;
-    const width = 2 * (w.laneWidth + w.shoulderWidth);
-    ctx.strokeStyle = COLOURS.road;
-    ctx.lineWidth = width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    for (const points of this.roads) polyline(ctx, points);
-    // Junctions: arms from the middle to where the roads begin; roundabouts get a ring round an island.
-    for (const junction of network.junctions) {
-      for (const arm of junction.arms) {
-        ctx.moveTo(junction.centre.x, junction.centre.z);
-        const end = add(junction.centre, dirVector(arm.dir), junction.size);
-        ctx.lineTo(end.x, end.z);
-      }
-    }
-    ctx.stroke();
-    for (const junction of network.junctions.filter((j) => j.kind === 'roundabout')) {
-      ctx.fillStyle = COLOURS.road;
-      ctx.beginPath();
-      ctx.arc(junction.centre.x, junction.centre.z, w.roundabout.outerRadius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = COLOURS.island;
-      ctx.beginPath();
-      ctx.arc(junction.centre.x, junction.centre.z, w.roundabout.islandRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    if (this.town) drawTown(ctx, this.town, this.world);
   }
 
   private drawRoute(ctx: CanvasRenderingContext2D, tracker: RouteTracker, metresPerPixel: number): void {
@@ -261,48 +180,8 @@ export class Minimap {
   }
 }
 
-function polyline(ctx: CanvasRenderingContext2D, points: readonly Vec2[]): void {
-  points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.z) : ctx.lineTo(p.x, p.z)));
-}
 
-/** An arrow at `p` pointing `angle` radians clockwise from straight up the screen. */
-function drawCar(ctx: CanvasRenderingContext2D, p: { x: number; y: number }, angle: number, size: number): void {
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  // Heading turns left for positive angles, which is anticlockwise on the map.
-  ctx.rotate(-angle);
-  ctx.beginPath();
-  ctx.moveTo(0, -size);
-  ctx.lineTo(size * 0.75, size * 0.8);
-  ctx.lineTo(0, size * 0.4);
-  ctx.lineTo(-size * 0.75, size * 0.8);
-  ctx.closePath();
-  ctx.fillStyle = COLOURS.car;
-  ctx.strokeStyle = COLOURS.carOutline;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fill();
-  ctx.restore();
-}
 
-function drawFlag(ctx: CanvasRenderingContext2D, p: { x: number; y: number }): void {
-  ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.strokeStyle = COLOURS.flag;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, -18);
-  ctx.stroke();
-  const cell = 3.5;
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 4; col++) {
-      ctx.fillStyle = (row + col) % 2 === 0 ? '#fff' : '#111';
-      ctx.fillRect(1 + col * cell, -18 + row * cell, cell, cell);
-    }
-  }
-  ctx.restore();
-}
 
 /** The picture next to the satnav text: an arrow, a roundabout with its exit, the kerb, or a flag. */
 export function drawInstructionIcon(ctx: CanvasRenderingContext2D, instruction: Instruction, px: number): void {
