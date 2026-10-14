@@ -6,6 +6,7 @@ import { createJunctionState, stepJunctions, type JunctionState } from './juncti
 import { createPositionState, stepPosition, type PositionState } from './position';
 import { createSignalState, signalStateForNewRoute, stepSignals, type SignalState } from './signals';
 import { createSpeedState, stepSpeed, type SpeedState } from './speed';
+import { maneuverName } from './faults';
 import type { Fault, FaultDraft, RulesSnapshot } from './types';
 
 // The rules engine. Every physics step it gets a snapshot of the car and the driver (see
@@ -88,7 +89,7 @@ export function stepRules(
   const junctions = stepJunctions(newRoute ? createJunctionState() : state.junctions, snap, events, params.junction, options.frontOffset);
   const speed = stepSpeed(state.speed, snap, params.speed);
   const position = stepPosition(
-    newRoute ? { ...state.position, cutCorners: [] } : state.position,
+    newRoute ? { ...state.position, cutCorners: [], cutCornerSince: null } : state.position,
     snap,
     params.position,
     options,
@@ -125,7 +126,9 @@ function addFaults(
   let episodes = state.episodes;
   const added: Fault[] = [];
   for (const { episode, ...draft } of drafts) {
-    const fault: Fault = { ...draft, id: nextId, time: snap.time, at: { ...snap.position } };
+    const m = draft.maneuver === null ? undefined : snap.route.maneuvers[draft.maneuver];
+    const place = m ? maneuverName(m) : null;
+    const fault: Fault = { ...draft, id: nextId, time: snap.time, at: { ...snap.position }, place };
     nextId += 1;
     if (episode !== undefined) {
       const replaced = episodes[episode];

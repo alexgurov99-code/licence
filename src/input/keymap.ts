@@ -32,8 +32,10 @@ export const KEYMAP = {
   /** Learner mode (hints on what to do next) or exam mode. */
   toggleLearner: ['KeyL'],
   toggleDebug: ['Backquote'],
-  /** Debug mode only: build a new town from a random seed. */
+  /** Debug mode: build a new town from a random seed. On the results screen: a new route (a new town too). */
   newMap: ['KeyN'],
+  /** Results screen: drive the same route again (same seed). */
+  retry: ['KeyR'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type Action = keyof typeof KEYMAP;

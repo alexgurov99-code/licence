@@ -15,6 +15,8 @@ export interface PositionState {
   wrongSideFaulted: boolean;
   /** Manoeuvres of the current route already faulted for cutting the corner. */
   cutCorners: readonly number[];
+  /** Since when the car has been far into the inside of the turn it is making now. */
+  cutCornerSince: number | null;
 }
 
 export function createPositionState(): PositionState {
@@ -26,6 +28,7 @@ export function createPositionState(): PositionState {
     centreLineFaulted: false,
     wrongSideFaulted: false,
     cutCorners: [],
+    cutCornerSince: null,
   };
 }
 
@@ -72,13 +75,15 @@ export function stepPosition(
     s.keepLeftFaulted = true;
   }
 
+  // Steering is rougher with keys than with a wheel: only a clear cut that lasts a moment counts.
   const m = snap.nextStarted && !snap.offRoute ? snap.route.maneuvers[snap.next] : undefined;
-  if (snap.inJunction && m && (m.kind === 'left' || m.kind === 'right') && !s.cutCorners.includes(m.index)) {
-    const inside = m.kind === 'left' ? snap.routeOffset : -snap.routeOffset;
-    if (inside > params.cutCornerOffset) {
-      s.cutCorners = [...s.cutCorners, m.index];
-      faults.push(cutCorner(m));
-    }
+  const turning = snap.inJunction && m !== undefined && (m.kind === 'left' || m.kind === 'right') && !s.cutCorners.includes(m.index);
+  const inside = m?.kind === 'left' ? snap.routeOffset : -snap.routeOffset;
+  s.cutCornerSince = timed(turning && inside > params.cutCornerOffset, s.cutCornerSince);
+  if (m && lasted(s.cutCornerSince, params.cutCornerSeconds)) {
+    s.cutCorners = [...s.cutCorners, m.index];
+    s.cutCornerSince = null;
+    faults.push(cutCorner(m));
   }
   return { state: s, faults };
 }

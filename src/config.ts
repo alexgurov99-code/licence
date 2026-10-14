@@ -418,8 +418,13 @@ export const CONFIG = {
       centreLineSeconds: 1,
       /** The middle of the car over the centre line this long: driving on the wrong side of the road. */
       wrongSideSeconds: 0.5,
-      /** Turning at a T or crossroads: further than this from the route line towards the inside of the turn cuts the corner. */
-      cutCornerOffset: 1.5,
+      /**
+       * Turning at a T or crossroads: the middle of the car further than this from the route line
+       * towards the inside of the turn, for cutCornerSeconds, cuts the corner. Lenient on purpose:
+       * steering with keys is rougher than with a wheel, and a slight cut is not a fault.
+       */
+      cutCornerOffset: 2.3,
+      cutCornerSeconds: 0.8,
     },
   },
 
@@ -434,6 +439,10 @@ export const CONFIG = {
     /** Each fault shows on screen this long; at most this many at once. */
     faultSeconds: 6,
     faultsShown: 4,
+    /** After an immediate fail the examiner ends the test: the results screen comes this long after. */
+    resultsAfterFailSeconds: 3,
+    /** The results map draws the way the car went from a point every this many metres. */
+    trailStep: 4,
     /** Learner mode: the steps for the next manoeuvre light up this far before the indicator should go on. */
     coachAheadDistance: 60,
     /** Windows that pop up while a look key is held. Sizes are shares of the screen width. */

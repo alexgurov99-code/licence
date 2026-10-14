@@ -50,8 +50,10 @@ export interface Fault {
   /** Simulation time and the car's position when it happened. */
   time: number;
   at: Vec2;
-  /** Index of the route manoeuvre it belongs to, if any. */
+  /** Index of the route manoeuvre it belongs to, if any (in the route of that moment: a new route renumbers them). */
   maneuver: number | null;
+  /** That manoeuvre's name, kept for the results screen: "Left turn", "Roundabout, 2nd exit". */
+  place: string | null;
   /** What happened, and how it should have been done: one sentence each. */
   what: string;
   correct: string;

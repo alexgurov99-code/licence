@@ -14,9 +14,10 @@ import { planRoute } from './route/planner';
 import { buildRoute, type Route } from './route/route';
 import { RouteMesh } from './route/routeMesh';
 import { createTracker, stepTracker } from './route/tracker';
-import { createRulesState, stepRules, type RulesState } from './rules/engine';
+import { createRulesState, stepRules } from './rules/engine';
 import { rulesSnapshot } from './rules/snapshot';
-import { summarizeFaults, type RulesSnapshot } from './rules/types';
+import { driveResults, extendTrail, immediateFailTime } from './rules/results';
+import type { RulesSnapshot } from './rules/types';
 import './style.css';
 import {
   DebugOverlay,
@@ -33,7 +34,9 @@ import { FpsCounter } from './ui/fpsCounter';
 import { GlancePopups } from './ui/glancePopups';
 import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
 import { eventMessage, MessageBanner, stuckHint } from './ui/messages';
+import { townMap } from './ui/mapDrawing';
 import { Minimap } from './ui/minimap';
+import { ResultsScreen } from './ui/resultsScreen';
 import { randomSeed } from './util/random';
 import { AdjustPanel, adjustText, describeCockpit } from './ui/adjustPanel';
 import { CabinMesh } from './vehicle/cabinMesh';
@@ -144,6 +147,12 @@ function start(container: HTMLElement): void {
   minimap.setNetwork(network, scenery);
   minimap.setRoute(route);
   addControlsHint(container);
+  // The route as planned at the start (a wrong turn makes a new one): the results map shows it.
+  let plannedRoute = route;
+  const results = new ResultsScreen(container, {
+    retry: () => loadDrive(network.seed),
+    newRoute: () => loadDrive(randomSeed()),
+  });
   // After a wrong turn the satnav finds a new route; the flag, zones and map follow it.
   const showRoute = (next: Route): void => {
     scene.remove(routeMesh.root, routeMesh.debug);
@@ -180,24 +189,24 @@ function start(container: HTMLElement): void {
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
   let pendingCommands: ControlCommand[] = [];
   const recentEvents: string[] = [];
+  // The way the car went and how far, for the results; when an immediate fail ended the test.
+  let trail: { x: number; z: number }[] = [];
+  let metres = 0;
+  let testOverAt: number | null = null;
   let simTime = 0;
   let accumulator = 0;
   let lastTime: number | null = null;
 
   chaseCamera.snapTo(car.motion);
 
-  renderer.setAnimationLoop((time: number) => {
-    // Cap long pauses (background tab, breakpoint) so the car does not jump.
-    const frameSeconds = lastTime === null ? 0 : Math.min((time - lastTime) / 1000, 0.25);
-    lastTime = time;
-
-    if (keyboard.takePressed('toggleDebug')) debugOverlay.toggle();
-    if (keyboard.takePressed('newMap') && debugOverlay.isVisible) {
+  /** Starts the drive again from the kerb: the same town and route for the same seed, a new town for a new one. */
+  function loadDrive(seed: string): void {
+    if (seed !== network.seed) {
       scene.remove(world.root, debugGraph.object, sceneryMesh.root);
       world.dispose();
       debugGraph.dispose();
       sceneryMesh.dispose();
-      network = buildNetwork(randomSeed());
+      network = buildNetwork(seed);
       showSeedInAddress(network.seed);
       world = new WorldMesh(network, maxAnisotropy);
       debugGraph = new DebugGraph(network);
@@ -207,19 +216,62 @@ function start(container: HTMLElement): void {
       mapSummary = describeMap(network, scenery);
       scene.add(world.root, debugGraph.object, sceneryMesh.root);
       minimap.setNetwork(network, scenery);
-      car = parkedAtStart();
-      cockpit = misadjustedCockpit(network.seed);
-      adjusting = null;
-      previousMotion = car.motion;
-      tracker = createTracker(route, car.motion);
-      rules = createRulesState();
-      lastSnapshot = null;
-      coachState = createCoachState();
-      faultFeed.clear();
-      pendingCommands = [];
-      chaseCamera.snapTo(car.motion);
-      recentEvents.push(`${simTime.toFixed(1)}s  new map, seed ${network.seed}`);
+      recentEvents.length = 0;
+      recentEvents.push(`new map, seed ${network.seed}`);
+    } else {
+      showRoute(plannedRoute);
+      recentEvents.length = 0;
+      recentEvents.push(`same route again, seed ${network.seed}`);
     }
+    plannedRoute = route;
+    car = parkedAtStart();
+    cockpit = misadjustedCockpit(network.seed);
+    adjusting = null;
+    previousMotion = car.motion;
+    glance = createGlanceState();
+    tracker = createTracker(route, car.motion);
+    rules = createRulesState();
+    lastSnapshot = null;
+    coachState = createCoachState();
+    faultFeed.clear();
+    pendingCommands = [];
+    // Times start from zero again: fault times on the results screen are drive times.
+    simTime = 0;
+    accumulator = 0;
+    trail = [];
+    metres = 0;
+    testOverAt = null;
+    results.hide();
+    chaseCamera.snapTo(car.motion);
+  }
+
+  function showResults(endedEarly: boolean): void {
+    const summary = driveResults({
+      faults: rules.faults,
+      maxCriticalErrors: CONFIG.rules.maxCriticalErrors,
+      seconds: simTime,
+      metres,
+      endedEarly,
+    });
+    results.show(
+      summary,
+      { town: townMap(network, scenery), route: plannedRoute, trail, start: network.start, finish: plannedRoute.finish },
+      network.seed,
+    );
+    if (minimap.isLarge) minimap.toggleLarge();
+  }
+
+  renderer.setAnimationLoop((time: number) => {
+    // Cap long pauses (background tab, breakpoint) so the car does not jump.
+    const frameSeconds = lastTime === null ? 0 : Math.min((time - lastTime) / 1000, 0.25);
+    lastTime = time;
+
+    if (keyboard.takePressed('toggleDebug')) debugOverlay.toggle();
+    // N: a new town in debug mode or on the results screen; R on the results screen: the same route again.
+    const newMapPressed = keyboard.takePressed('newMap');
+    const retryPressed = keyboard.takePressed('retry');
+    if (newMapPressed && (debugOverlay.isVisible || results.isOpen)) loadDrive(randomSeed());
+    else if (retryPressed && results.isOpen) loadDrive(network.seed);
     if (keyboard.takePressed('toggleMap')) minimap.toggleLarge();
     if (keyboard.takePressed('toggleLearner')) {
       learner = !learner;
@@ -237,8 +289,11 @@ function start(container: HTMLElement): void {
     }
     if (keyboard.takePressed('adjustDone')) adjusting = null;
     pendingCommands.push(...takeCommands(keyboard));
+    // Driving keys do nothing while the results are on screen.
+    if (results.isOpen) pendingCommands = [];
 
-    accumulator += frameSeconds;
+    // The results screen pauses the drive.
+    accumulator = results.isOpen ? 0 : accumulator + frameSeconds;
     let steps = 0;
     while (accumulator >= step && steps < CONFIG.simulation.maxStepsPerFrame) {
       const result = stepCar(car, { held: readHeldKeys(keyboard), commands: pendingCommands }, step);
@@ -276,14 +331,25 @@ function start(container: HTMLElement): void {
         readiness: readiness(cockpit),
         adjusting: adjusting !== null && arrowHeld,
       });
-      const rulesResult = stepRules(rules, snapshot, routeResult.events);
-      const justFinished = rulesResult.state.finished && !rules.finished;
-      rules = rulesResult.state;
-      if (justFinished) messages.show(`Route complete: ${resultLine(rules.faults)}`, 3 * CONFIG.ui.messageSeconds);
+      metres += extendTrail(trail, car.motion, CONFIG.ui.trailStep);
+      // After an immediate fail nothing more is judged: the examiner has ended the test.
+      if (testOverAt === null) {
+        const rulesResult = stepRules(rules, snapshot, routeResult.events);
+        rules = rulesResult.state;
+        for (const fault of rulesResult.faults) {
+          recentEvents.push(`${simTime.toFixed(1)}s  ${describeFault(fault)}`);
+          faultFeed.show(fault, learner);
+        }
+        if (!rules.finished && immediateFailTime(rules.faults) !== null) {
+          testOverAt = simTime;
+          messages.show('Test over: immediate fail. Pull over safely.', CONFIG.ui.resultsAfterFailSeconds);
+        }
+      }
       lastSnapshot = snapshot;
-      for (const fault of rulesResult.faults) {
-        recentEvents.push(`${simTime.toFixed(1)}s  ${describeFault(fault)}`);
-        faultFeed.show(fault, learner);
+      const over = rules.finished || (testOverAt !== null && simTime - testOverAt >= CONFIG.ui.resultsAfterFailSeconds);
+      if (over && !results.isOpen) {
+        showResults(testOverAt !== null);
+        break;
       }
       accumulator -= step;
       steps += 1;
@@ -384,17 +450,6 @@ const ADJUST_GLANCE: Record<Exclude<AdjustItem, 'seat'>, GlanceTarget> = {
   left: 'leftMirror',
   right: 'rightMirror',
 };
-
-/** "PASSED (1 critical, 3 minor)": the full results screen comes in stage 7. */
-function resultLine(faults: RulesState['faults']): string {
-  const summary = summarizeFaults(faults, CONFIG.rules.maxCriticalErrors);
-  const counts = [
-    summary.immediateFail > 0 ? `${summary.immediateFail} immediate fail` : '',
-    `${summary.critical} critical`,
-    `${summary.minor} minor`,
-  ].filter((text) => text !== '');
-  return `${summary.passed ? 'PASSED' : 'FAILED'} (${counts.join(', ')})`;
-}
 
 /** Houses, trees and parked cars for the town; nothing parked along the route or by the start and finish. */
 function sceneryFor(network: RoadNetwork, route: Route): Scenery {

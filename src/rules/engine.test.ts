@@ -261,13 +261,21 @@ describe('position', () => {
   });
 
   for (const kind of ['left', 'right'] as const) {
-    it(`cutting the corner on a ${kind} turn is minor`, () => {
+    const cutBy = (metres: number): ReturnType<typeof drive> => {
       const found = findSeed(turnAt(kind));
-      const inside = kind === 'left' ? 2.5 : -2.5;
-      const { faults } = drive(found.seed, {
+      const inside = kind === 'left' ? metres : -metres;
+      return drive(found.seed, {
         offset: (ideal, ctx) => (ctx.s > found.m.start + 3 && ctx.s < found.m.end - 3 ? inside : ideal),
       });
-      expect(faultList(faults)).toEqual([`cutCorner@${found.m.index}`]);
+    };
+
+    it(`cutting the corner on a ${kind} turn is minor`, () => {
+      const found = findSeed(turnAt(kind));
+      expect(faultList(cutBy(3.2).faults)).toEqual([`cutCorner@${found.m.index}`]);
+    });
+
+    it(`cutting the corner only slightly on a ${kind} turn is fine`, () => {
+      expect(faultList(cutBy(1.8).faults)).toEqual([]);
     });
   }
 });
@@ -285,7 +293,7 @@ describe('every fault', () => {
 });
 
 describe('results', () => {
-  const fault = (severity: Fault['severity']): Fault => ({ id: 0, kind: 'speeding', severity, time: 0, at: { x: 0, z: 0 }, maneuver: null, what: '', correct: '' });
+  const fault = (severity: Fault['severity']): Fault => ({ id: 0, kind: 'speeding', severity, time: 0, at: { x: 0, z: 0 }, maneuver: null, place: null, what: '', correct: '' });
 
   it('pass with minor faults and up to 2 critical errors; fail with more or with any immediate failure', () => {
     expect(summarizeFaults([fault('minor'), fault('minor'), fault('critical'), fault('critical')], 2).passed).toBe(true);
