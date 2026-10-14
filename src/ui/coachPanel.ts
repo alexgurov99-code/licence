@@ -4,6 +4,7 @@ import { keyLabel } from '../input/keymap';
 import { ordinal } from '../route/instructions';
 import type { Maneuver } from '../route/route';
 import type { CoachStep, CoachStepState, CoachWarning, Coaching } from '../rules/coach';
+import type { Direction } from '../traffic/types';
 
 // Learner mode panel at the top of the screen: the next manoeuvre, its steps with the keys to
 // press (done ones ticked, the one to do now highlighted), and warnings. L switches it off for
@@ -107,8 +108,24 @@ function stepText(step: CoachStep, m: Maneuver): string {
   }
 }
 
+const GIVE_WAY_TO: Record<Direction, string> = {
+  left: 'Give way to the car on your left',
+  right: 'Give way to the car on your right',
+  ahead: 'Give way to the oncoming car',
+  behind: 'Wait for the car behind to pass',
+};
+
 function warningText(warning: CoachWarning): string {
-  return warning.kind === 'speeding' ? `Slow down: the limit is ${warning.limit} km/h` : 'Keep left in your lane';
+  switch (warning.kind) {
+    case 'speeding':
+      return `Slow down: the limit is ${warning.limit} km/h`;
+    case 'keepLeft':
+      return 'Keep left in your lane';
+    case 'giveWay':
+      return GIVE_WAY_TO[warning.from];
+    case 'tooClose':
+      return 'Too close: keep 2 seconds behind the car ahead';
+  }
 }
 
 export class CoachPanel {

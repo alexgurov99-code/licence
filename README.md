@@ -45,4 +45,8 @@ The town is generated from a seed: the same seed always gives the same streets, 
 The seed is in the address, e.g. `…/licence/?seed=abc`; without one, a new seed is made up and written into the address,
 so reloading the page or sharing the link gives the same town.
 
+Other cars (about 12 around the learner) drive the town too: they keep to their lanes and the limit, keep their
+distance, stop at Stop signs, give way by the NZ give way rules and signal their turns. The same seed and the same
+driving give the same traffic. Failing to give way (another car has to brake hard) and a collision end the test.
+
 Key bindings live in `src/input/keymap.ts`; all tunable numbers live in `src/config.ts`.

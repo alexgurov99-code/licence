@@ -3,6 +3,7 @@ import type { Route, Side } from '../route/route';
 import type { CockpitReadiness } from '../vehicle/cockpitTypes';
 import type { Gear } from '../vehicle/gearbox';
 import type { RoadPlace } from '../world/locate';
+import type { TrafficView } from '../traffic/types';
 import type { Vec2 } from '../world/path';
 
 // Shared data of the rules engine. Pure logic, no Three.js.
@@ -41,7 +42,10 @@ export type FaultKind =
   | 'mirrorsNotAdjusted'
   | 'adjustedWhileMoving'
   | 'drillOrder'
-  | 'notSecured';
+  | 'notSecured'
+  | 'failedToGiveWay'
+  | 'collision'
+  | 'followingTooClosely';
 
 export interface Fault {
   id: number;
@@ -104,6 +108,8 @@ export interface RulesSnapshot {
   /** On a road (not in a junction or off the road): where in it, and the speed limit (km/h). */
   road: { place: RoadPlace; laneOffset: number; speedLimit: number } | null;
   inJunction: boolean;
+  /** The other traffic around the learner (see traffic/types). */
+  traffic: TrafficView;
 }
 
 export interface FaultSummary {

@@ -11,7 +11,7 @@ import { Keyboard } from './input/keyboard';
 import { keyLabel } from './input/keymap';
 import { currentInstruction } from './route/instructions';
 import { planRoute } from './route/planner';
-import { buildRoute, type Route } from './route/route';
+import { buildRoute, laneIndexAt, type Route } from './route/route';
 import { RouteMesh } from './route/routeMesh';
 import { createTracker, stepTracker } from './route/tracker';
 import { createRulesState, stepRules } from './rules/engine';
@@ -28,6 +28,9 @@ import {
   describeRouteEvent,
 } from './ui/debugOverlay';
 import { coach, createCoachState } from './rules/coach';
+import { createTraffic, createTrafficWorld, stepTraffic, type TrafficState, type TrafficWorld } from './traffic/traffic';
+import { TrafficMesh } from './traffic/trafficMesh';
+import { NO_TRAFFIC, type TrafficView } from './traffic/types';
 import { CoachPanel } from './ui/coachPanel';
 import { FaultFeed } from './ui/faultFeed';
 import { FpsCounter } from './ui/fpsCounter';
@@ -50,6 +53,7 @@ import { VehicleMesh } from './vehicle/vehicleMesh';
 import { DebugGraph } from './world/debugGraph';
 import { locate } from './world/locate';
 import { buildNetwork, type RoadNetwork } from './world/network';
+import { CAR_SIZES } from './world/models/catalogue';
 import { placeScenery, type Scenery } from './world/scenery';
 import { DETAIL_LAYER, SceneryMesh } from './world/sceneryMesh';
 import { WorldMesh } from './world/worldMesh';
@@ -102,6 +106,10 @@ function start(container: HTMLElement): void {
 
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
+  // Other cars on the roads: the same ones for the same seed (and the same driving).
+  let trafficWorld = trafficWorldFor(network, scenery);
+  const trafficMesh = new TrafficMesh();
+  scene.add(trafficMesh.root, trafficMesh.debug);
 
   // Cockpit drill: the seat and mirrors start out of adjustment (the same way for the same seed).
   // The seat moves the driver's eye; the mirror pictures are worked out from the eye and the glass angles.
@@ -184,6 +192,9 @@ function start(container: HTMLElement): void {
   let glance = createGlanceState();
   let tracker = createTracker(route, car.motion);
   let rules = createRulesState();
+  let traffic: TrafficState = createTraffic(trafficWorld, network.seed, network.start);
+  let previousTraffic: TrafficState | null = null;
+  let trafficView: TrafficView = NO_TRAFFIC;
   let lastSnapshot: RulesSnapshot | null = null;
   let coachState = createCoachState();
   // Key presses wait here until a physics step uses them (a fast monitor can draw frames with no step).
@@ -216,6 +227,7 @@ function start(container: HTMLElement): void {
       mapSummary = describeMap(network, scenery);
       scene.add(world.root, debugGraph.object, sceneryMesh.root);
       minimap.setNetwork(network, scenery);
+      trafficWorld = trafficWorldFor(network, scenery);
       recentEvents.length = 0;
       recentEvents.push(`new map, seed ${network.seed}`);
     } else {
@@ -231,6 +243,9 @@ function start(container: HTMLElement): void {
     glance = createGlanceState();
     tracker = createTracker(route, car.motion);
     rules = createRulesState();
+    traffic = createTraffic(trafficWorld, network.seed, network.start);
+    previousTraffic = null;
+    trafficView = NO_TRAFFIC;
     lastSnapshot = null;
     coachState = createCoachState();
     faultFeed.clear();
@@ -315,6 +330,18 @@ function start(container: HTMLElement): void {
           messages.show('New route: follow the map');
         }
       }
+      // The other cars move; a crash stops the learner's car where it touched.
+      const trafficResult = stepTraffic(trafficWorld, traffic, {
+        ...car.motion,
+        length: CONFIG.vehicle.length,
+        width: CONFIG.vehicle.width,
+        indicator: car.controls.indicators.hazard ? null : car.controls.indicators.lever,
+        routeConnector: tracker.offRoute ? null : (tracker.route.plan.connectors[laneIndexAt(tracker.route, tracker.progress)] ?? null),
+      }, step);
+      previousTraffic = traffic;
+      traffic = trafficResult.state;
+      trafficView = trafficResult.view;
+      if (trafficView.collision) car = { ...car, motion: { ...previousMotion, speed: 0 } };
       // While adjusting, the arrows move the seat or the mirror instead of looking.
       const arrows = readGlanceKeys(keyboard);
       const arrowHeld = arrows.up || arrows.down || arrows.left || arrows.right;
@@ -327,10 +354,15 @@ function start(container: HTMLElement): void {
       }
       // The rules engine judges this step: the car, the glances and where it is on the route and the road.
       const where = locate(network, car.motion, car.motion.heading);
-      const snapshot = rulesSnapshot(simTime, car, glance, tracker, where, {
-        readiness: readiness(cockpit),
-        adjusting: adjusting !== null && arrowHeld,
-      });
+      const snapshot = rulesSnapshot(
+        simTime,
+        car,
+        glance,
+        tracker,
+        where,
+        { readiness: readiness(cockpit), adjusting: adjusting !== null && arrowHeld },
+        trafficView,
+      );
       metres += extendTrail(trail, car.motion, CONFIG.ui.trailStep);
       // After an immediate fail nothing more is judged: the examiner has ended the test.
       if (testOverAt === null) {
@@ -360,6 +392,7 @@ function start(container: HTMLElement): void {
     const { controls } = car;
     const pose = interpolatePose(previousMotion, car.motion, accumulator / step);
     vehicleMesh.update(pose);
+    trafficMesh.update(traffic, previousTraffic, accumulator / step, vehicleMesh.root.position);
     vehicleMesh.setLamps({
       ...indicatorLamps(controls.indicators),
       brake: controls.brake > 0,
@@ -391,7 +424,7 @@ function start(container: HTMLElement): void {
     // The mirror being adjusted shows big, its frame green once it is right.
     const shownGlance = adjusting && adjusting !== 'seat' ? { target: ADJUST_GLANCE[adjusting], counted: ready[adjusting] } : glance;
     popups.update(view, shownGlance, frameSeconds);
-    minimap.update(pose, tracker, currentInstruction(tracker));
+    minimap.update(pose, tracker, currentInstruction(tracker), traffic.cars);
     if (lastSnapshot) {
       const coached = coach(lastSnapshot, rules, coachState);
       coachState = coached.state;
@@ -407,6 +440,7 @@ function start(container: HTMLElement): void {
     // The debug lines and zones are only drawn in the main view, never in the mirrors.
     debugGraph.object.visible = false;
     routeMesh.debug.visible = false;
+    trafficMesh.debug.visible = false;
     // The rear-view mirror looks through the cabin; the door mirrors see the car from outside.
     cabin.setMirrorGlassVisible(false);
     mirrorCameras.render(renderer, scene, (id) => vehicleMesh.setInteriorView(id === 'interior'));
@@ -420,9 +454,11 @@ function start(container: HTMLElement): void {
     const camera = view === 'chase' ? chaseCamera.camera : firstPerson.camera;
     debugGraph.object.visible = debugOverlay.isVisible;
     routeMesh.debug.visible = debugOverlay.isVisible;
+    trafficMesh.debug.visible = debugOverlay.isVisible;
     renderer.render(scene, camera);
     debugGraph.object.visible = false;
     routeMesh.debug.visible = false;
+    trafficMesh.debug.visible = false;
     popups.render(renderer);
 
     fpsCounter.tick(frameSeconds);
@@ -437,6 +473,8 @@ function start(container: HTMLElement): void {
       glance,
       route: tracker,
       rules,
+      traffic,
+      trafficView,
       cockpit: `${describeCockpit(cockpit, ready)}${adjusting ? ` · adjusting ${adjusting}` : ''}`,
       recentEvents,
       drawCalls: renderer.info.render.calls,
@@ -450,6 +488,14 @@ const ADJUST_GLANCE: Record<Exclude<AdjustItem, 'seat'>, GlanceTarget> = {
   left: 'leftMirror',
   right: 'rightMirror',
 };
+
+/** The traffic's view of the town: the junctions and the parked cars the learner could hit. */
+function trafficWorldFor(network: RoadNetwork, scenery: Scenery): TrafficWorld {
+  const parked = scenery.items.flatMap((item) =>
+    item.kind === 'car' ? [{ x: item.x, z: item.z, heading: item.heading, ...CAR_SIZES[item.car] }] : [],
+  );
+  return createTrafficWorld(network, parked);
+}
 
 /** Houses, trees and parked cars for the town; nothing parked along the route or by the start and finish. */
 function sceneryFor(network: RoadNetwork, route: Route): Scenery {

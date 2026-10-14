@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CONFIG } from '../config';
 import type { RulesState } from './engine';
 import { coach, createCoachState, type Coaching } from './coach';
 import type { RulesSnapshot } from './types';
@@ -149,5 +150,21 @@ describe('learner mode', () => {
       },
     });
     expect(warned).toBe(true);
+  });
+
+  it('with traffic, says where the car to give way to comes from while the driver waits for it', () => {
+    const warnings = new Set<string>();
+    let waiting = false;
+    const coachAt = coaching();
+    drive('rules-5', {
+      traffic: { count: CONFIG.traffic.count },
+      onStep: (snap, rules) => {
+        for (const w of coachAt(snap, rules)?.warnings ?? []) warnings.add(w.kind === 'giveWay' ? `giveWay:${w.from}` : w.kind);
+        if (snap.speed === 0 && snap.traffic.conflicts.some((c) => c.learnerGivesWay && !c.carClear)) waiting = true;
+      },
+    });
+    expect(waiting).toBe(true);
+    expect([...warnings].some((w) => w.startsWith('giveWay:'))).toBe(true);
+    expect(warnings.has('tooClose')).toBe(false);
   });
 });

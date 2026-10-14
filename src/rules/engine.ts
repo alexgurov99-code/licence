@@ -6,6 +6,7 @@ import { createJunctionState, stepJunctions, type JunctionState } from './juncti
 import { createPositionState, stepPosition, type PositionState } from './position';
 import { createSignalState, signalStateForNewRoute, stepSignals, type SignalState } from './signals';
 import { createSpeedState, stepSpeed, type SpeedState } from './speed';
+import { createTrafficRulesState, stepTrafficRules, type TrafficRulesState } from './traffic';
 import { maneuverName } from './faults';
 import type { Fault, FaultDraft, RulesSnapshot } from './types';
 
@@ -26,6 +27,7 @@ export interface RulesState {
   speed: SpeedState;
   position: PositionState;
   drill: DrillState;
+  traffic: TrafficRulesState;
   /** The car has arrived and been secured (or the time for that ran out): the drive is over and nothing more is judged. */
   finished: boolean;
 }
@@ -58,6 +60,7 @@ export function createRulesState(): RulesState {
     speed: createSpeedState(),
     position: createPositionState(),
     drill: createDrillState(),
+    traffic: createTrafficRulesState(),
     finished: false,
   };
 }
@@ -96,8 +99,16 @@ export function stepRules(
   );
 
   const drill = stepDrill(state.drill, snap, params.drill);
+  const traffic = stepTrafficRules(state.traffic, snap, params.traffic);
 
-  const drafts: FaultDraft[] = [...drill.faults, ...signals.faults, ...junctions.faults, ...speed.faults, ...position.faults];
+  const drafts: FaultDraft[] = [
+    ...drill.faults,
+    ...traffic.faults,
+    ...signals.faults,
+    ...junctions.faults,
+    ...speed.faults,
+    ...position.faults,
+  ];
   const added = addFaults(state, drafts, snap);
 
   return {
@@ -108,6 +119,7 @@ export function stepRules(
       junctions: junctions.state,
       speed: speed.state,
       position: position.state,
+      traffic: traffic.state,
       drill: snap.arrived ? { ...drill.state, arrivedAt: snap.time } : drill.state,
       finished: false,
     },

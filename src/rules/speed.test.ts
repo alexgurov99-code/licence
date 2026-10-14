@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NO_TRAFFIC } from '../traffic/types';
 import { COCKPIT_READY } from '../vehicle/cockpitTypes';
 import { CONFIG } from '../config';
 import { createSpeedState, stepSpeed, type SpeedState } from './speed';
@@ -32,6 +33,7 @@ function snap(time: number, kmh: number, limit: number | null): RulesSnapshot {
     arrived: false,
     road: limit === null ? null : { place: 'lane', laneOffset: 0, speedLimit: limit },
     inJunction: limit === null,
+    traffic: NO_TRAFFIC,
   };
 }
 

@@ -408,6 +408,8 @@ export const CONFIG = {
       slowAfterManeuver: 40,
       /** ...and this close to a bend of the road (bend tiles are tight: about 35–40 km/h at most). */
       slowAroundBend: 40,
+      /** ...and behind a car closer than this (bumper to bumper), or while giving way. */
+      heldUpGap: 30,
     },
     position: {
       /** The middle of the car further right than this of the middle of its lane, for keepLeftSeconds: keep left. */
@@ -426,6 +428,102 @@ export const CONFIG = {
       cutCornerOffset: 2.3,
       cutCornerSeconds: 0.8,
     },
+    /** Other traffic (stage 8). Failing to give way (another driver had to brake hard) and a collision end the test. */
+    traffic: {
+      /** NZ Road Code: keep at least 2 seconds behind the car ahead. Closer than this for followMinorFor: minor... */
+      followMinorSeconds: 2,
+      followMinorFor: 5,
+      /** ...and closer than this for followCriticalFor: critical ("following too closely"). */
+      followCriticalSeconds: 1,
+      followCriticalFor: 3,
+      /** Following distance is only judged above this speed, km/h. */
+      followMinKmh: 20,
+      /** A car braking hard behind the learner still counts against the pull-out this far after it. */
+      pullOutGrace: 30,
+      /** Learner mode: "give way" shows for a car this many seconds from where the paths meet, when the learner is this close to it. */
+      hintSeconds: 6,
+      hintDistance: 30,
+    },
+  },
+
+  /**
+   * Other cars on the roads (stage 8). They keep to their lanes and the speed limit, keep a
+   * distance (a simple "intelligent driver" model), stop at Stop signs, give way by the NZ rules
+   * and signal their turns. They appear and disappear out of the driver's sight.
+   */
+  traffic: {
+    /** Cars kept driving around the learner. */
+    count: 12,
+    /** New cars appear between these distances from the learner... */
+    spawnMinDistance: 160,
+    spawnMaxDistance: 300,
+    /** ...and further than this when in front of the learner (inside spawnFrontAngle of the way the car faces). */
+    spawnFrontDistance: 250,
+    spawnFrontAngle: 0.9,
+    /** At the start of a drive the cars can be closer, but not nearer than this. */
+    startMinDistance: 40,
+    /** No new car this close to another car. */
+    spawnGap: 25,
+    /** ...and not closer than this to the junction at the end of its lane. */
+    spawnBeforeJunction: 50,
+    /** A car this far from the learner is taken away (and a new one appears somewhere else). */
+    despawnDistance: 330,
+    /** A car stuck this long (not moving) is taken away when the learner is further than stuckRemoveDistance. */
+    stuckSeconds: 25,
+    stuckRemoveDistance: 60,
+
+    /** Cruising speed: this share of the limit, picked per driver between min and max. */
+    cruiseShareMin: 0.9,
+    cruiseShareMax: 1.0,
+    /** Intelligent driver model: comfortable acceleration and braking, time gap to the car ahead, gap when stopped. */
+    acceleration: 1.6,
+    comfortableBraking: 2.5,
+    timeGap: 1.4,
+    minGap: 2.5,
+    /** Gap left to a limit line when stopping for it. */
+    lineGap: 0.8,
+    /** Hardest braking a driver can do. */
+    maxBraking: 8,
+    /** Having to brake harder than this to stop in time behind the learner is "evasive action" (NZ test: failing to give way). */
+    evasiveBraking: 4,
+    /** Sideways acceleration drivers allow in curves and junction turns: sets their turning speed. */
+    curveAcceleration: 2.2,
+    /** Speed when crossing a give-way line with nobody to give way to (roundabouts and Give Way signs). */
+    giveWaySpeed: 4,
+    /** Standing still (slower than this) at a Stop line counts as stopped... */
+    stopSpeed: 0.3,
+    /** ...this close to the line; then the driver waits this long before going. */
+    stopNear: 5,
+    stopWaitSeconds: 1,
+    /** Looking ahead along the lane for cars and curves, metres. */
+    lookAhead: 70,
+    /** A car ahead counts when its middle is this close to the way the driver will go. */
+    corridorHalfWidth: 1.6,
+    /** ...and points along that way are checked this far apart. */
+    corridorStep: 2,
+    /** Cars facing more than this away from the way ahead are crossing, not in the lane (unless standing still). */
+    sameWayAngle: 1.1,
+    /** ...but a crossing car this close ahead is braked for. */
+    crossingBrakeDistance: 12,
+    /** Two junction paths conflict where their middles come closer than this. */
+    conflictDistance: 3,
+    /** A driver waits unless a car with priority is at least this many seconds from where their paths meet. */
+    giveWayGapSeconds: 4,
+    /** ...or the time it needs to get through that place plus this margin, whichever is longer. */
+    giveWayMarginSeconds: 1.5,
+    /** ...and only cars closer to that place than this matter. */
+    giveWayLookDistance: 100,
+    /** Where two ways merge, a car is through once it is this far (bumper to bumper) ahead of the other in the shared stretch. */
+    clearMargin: 3,
+    /** After waiting this long at a line, drivers stop waiting for a car standing still that waits for nobody, or for cars in a circle of waiting. */
+    impatientSeconds: 6,
+    /** Indicators go on this many seconds before the junction (at least signalMinDistance before it). */
+    signalSeconds: 3.5,
+    signalMinDistance: 30,
+    /** At a roundabout, the left indicator for the exit goes on this far before leaving. */
+    exitSignalDistance: 14,
+    /** How often each way is picked at a junction, relative to each other. */
+    turnWeights: { left: 1, straight: 1.2, right: 1 },
   },
 
   audio: {
@@ -513,3 +611,4 @@ export type RouteParams = Widen<typeof CONFIG.route>;
 export type MinimapParams = NumberFields<typeof CONFIG.minimap>;
 export type RulesParams = Widen<typeof CONFIG.rules>;
 export type CockpitParams = NumberFields<typeof CONFIG.cockpit>;
+export type TrafficParams = Widen<typeof CONFIG.traffic>;

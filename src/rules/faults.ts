@@ -1,6 +1,7 @@
 import type { Maneuver, Side } from '../route/route';
 import type { MirrorName } from '../vehicle/cockpitTypes';
 import { ordinal } from '../route/instructions';
+import type { Direction } from '../traffic/types';
 import type { FaultDraft } from './types';
 
 // What each fault says: what happened and how it would have been right. Shown on screen during
@@ -313,5 +314,51 @@ export function notSecured(m: Maneuver): FaultDraft {
     maneuver: m.index,
     what: 'Did not secure the car after pulling over.',
     correct: 'Once stopped at the kerb, apply the handbrake and select P.',
+  };
+}
+
+const FROM: Record<Direction, string> = {
+  left: 'from your left',
+  right: 'from your right',
+  ahead: 'coming towards you',
+  behind: 'from behind',
+};
+
+/** NZ restricted test: failing to give way so that another road user has to take evasive action is an immediate failure. */
+export function failedToGiveWay(m: Maneuver | null, from: Direction): FaultDraft {
+  const pullingOut = m?.kind === 'pullOut';
+  let correct = 'Wait until the car has passed or is far enough away, then go.';
+  if (pullingOut) correct = 'Pulling out, give way to all traffic on the road: wait for a safe gap.';
+  else if (m?.control === 'stop' || m?.control === 'giveWay') correct = 'At a Stop or Give Way sign, give way to all traffic on the other road.';
+  else if (m?.kind === 'roundabout') correct = 'At a roundabout, give way to all traffic coming from your right.';
+  else if (m?.kind === 'right' && from === 'ahead') correct = 'Turning right, give way to oncoming traffic going straight or turning left.';
+  else if (m?.kind === 'right' || m?.kind === 'left') correct = 'When turning, give way to all traffic that is not turning.';
+  return {
+    kind: 'failedToGiveWay',
+    severity: 'immediateFail',
+    maneuver: m?.index ?? null,
+    what: `Did not give way: a car ${FROM[from]} had to brake hard${m ? ` (${maneuverPhrase(m)})` : ''}.`,
+    correct,
+  };
+}
+
+export function collision(what: 'car' | 'parkedCar'): FaultDraft {
+  return {
+    kind: 'collision',
+    severity: 'immediateFail',
+    maneuver: null,
+    what: what === 'car' ? 'Hit another car.' : 'Hit a parked car.',
+    correct: 'Keep a safe distance, watch the space around the car and stop in time.',
+  };
+}
+
+export function followingTooClosely(severity: FaultDraft['severity'], seconds: number, episode: string): FaultDraft {
+  return {
+    kind: 'followingTooClosely',
+    severity,
+    maneuver: null,
+    what: `Followed the car ahead only ${seconds.toFixed(1)} s behind.`,
+    correct: 'Keep at least 2 seconds behind the car ahead (count as it passes a mark).',
+    episode,
   };
 }

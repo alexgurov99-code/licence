@@ -4,6 +4,8 @@ import { keyLabel } from '../input/keymap';
 import type { Maneuver, Zone } from '../route/route';
 import type { RouteEvent, RouteTracker } from '../route/tracker';
 import type { RulesState } from '../rules/engine';
+import { LEARNER, type TrafficState } from '../traffic/traffic';
+import type { TrafficView } from '../traffic/types';
 import { summarizeFaults, type Fault, type Severity } from '../rules/types';
 import type { CarState } from '../vehicle/car';
 import type { ControlEvent } from '../vehicle/carControls';
@@ -25,6 +27,8 @@ export interface DebugInfo {
   glance: GlanceState;
   route: RouteTracker;
   rules: RulesState;
+  traffic: TrafficState;
+  trafficView: TrafficView;
   /** Seat and mirror adjustment (see ui/adjustPanel describeCockpit). */
   cockpit: string;
   /** Newest last. */
@@ -92,6 +96,7 @@ export function formatDebugInfo(info: DebugInfo): string {
     ...formatGlance(info.glance, info.simTime),
     ...formatRoute(info.route),
     ...formatRules(info.rules, info.simTime),
+    ...formatTraffic(info.traffic, info.trafficView),
     `draws    ${info.drawCalls}  tris ${info.triangles}`,
     'events',
     ...info.recentEvents.map((line) => `  ${line}`),
@@ -287,6 +292,22 @@ export function formatRules(rules: RulesState, simTime: number, maxCriticalError
     `rules    ${summary.passed ? 'PASS' : 'FAIL'} · fail ${summary.immediateFail} / critical ${summary.critical} / minor ${summary.minor}${rules.finished ? ' · finished' : ''}`,
     `         indicator ${indicator} · limit ${limit} · mirror before signal ${mirrors.length > 0 ? mirrors.slice(-3).join(' ') : '-'}`,
     ...rules.faults.slice(-3).map((f) => `  ${f.time.toFixed(1)}s ${describeFault(f)}`),
+  ];
+}
+
+/** The other cars: how many, who is giving way to whom, and the cars whose way meets the learner's. */
+export function formatTraffic(traffic: TrafficState, view: TrafficView): string[] {
+  const who = (id: number): string => (id === LEARNER ? 'you' : `#${id}`);
+  const waiting = traffic.cars.filter((c) => c.givingWayTo.length > 0).map((c) => `#${c.id}→${c.givingWayTo.map(who).join(',')}`);
+  const conflicts = view.conflicts.map(
+    (c) =>
+      `#${c.carId} ${c.from} ${c.learnerGivesWay ? 'you give way' : 'has to wait'} (car ${c.carClear ? 'through' : `${c.carTo.toFixed(0)} m`}, you ${c.learnerClear ? 'through' : `${c.learnerTo.toFixed(0)} m`})`,
+  );
+  const ahead = view.ahead ? `#${view.ahead.carId} ${view.ahead.gap.toFixed(0)} m ahead` : 'none ahead';
+  return [
+    `traffic  ${traffic.cars.length} cars · ${ahead}${view.evasive.length > 0 ? ` · BRAKING FOR YOU: ${view.evasive.map(who).join(',')}` : ''}`,
+    `         giving way: ${waiting.length > 0 ? waiting.slice(0, 6).join(' ') : '-'}`,
+    ...conflicts.slice(0, 3).map((c) => `         ${c}`),
   ];
 }
 
