@@ -94,6 +94,32 @@ export const CONFIG = {
     right: { x: -1.02, y: 1.03, z: 0.56, width: 0.21, height: 0.125, viewYaw: -0.06, viewPitch: -0.02, wideAngle: 1 },
   },
 
+  /**
+   * Cockpit drill: adjusting the seat and the mirrors before the drive. The seat is right at the
+   * cabin's eye point (CONFIG.cabin); a mirror is right when its glass is within the tolerance of
+   * the angle that gives the view in CONFIG.mirrors from the current eye.
+   */
+  cockpit: {
+    /** How far the seat moves from the right position, metres. */
+    seatForwardRange: 0.15,
+    seatHeightRange: 0.08,
+    /** Moving the seat, metres per second while the key is held. */
+    seatSpeed: 0.08,
+    /** The seat counts as adjusted within this distance of the right position (each direction). */
+    seatTolerance: 0.02,
+    /** At the start the seat is off by this much at least, in one or both directions. */
+    seatMisadjustMin: 0.05,
+    /** Turning a mirror glass, radians per second while the key is held. */
+    mirrorSpeed: 0.1,
+    /** A mirror counts as adjusted within this angle of the right one, radians (yaw and pitch each). */
+    mirrorTolerance: 0.02,
+    /** At the start each mirror is off by this angle (from min to max), radians. */
+    mirrorMisadjustMin: 0.06,
+    mirrorMisadjustMax: 0.14,
+    /** A mirror glass cannot turn further than this from the right angle. */
+    mirrorRange: 0.35,
+  },
+
   glance: {
     /** A look in a mirror or over a shoulder counts as a check once the key has been held this long. */
     minCheckSeconds: 0.5,
@@ -347,6 +373,12 @@ export const CONFIG = {
       /** Pulling out: the look over the right shoulder must be this recent when the car moves off. */
       shoulderMaxAgeSeconds: 5,
     },
+    drill: {
+      /** The car counts as moving (the drive has begun, adjusting is no longer safe) above this speed, km/h. */
+      movingKmh: 2,
+      /** Parked at the end: handbrake on and P within this many seconds of stopping. */
+      secureSeconds: 8,
+    },
     junction: {
       /** Stop sign: the car must stop (front of the car) within this distance before the line... */
       stopWindow: 10,
@@ -471,3 +503,4 @@ export type WorldParams = Widen<typeof CONFIG.world>;
 export type RouteParams = Widen<typeof CONFIG.route>;
 export type MinimapParams = NumberFields<typeof CONFIG.minimap>;
 export type RulesParams = Widen<typeof CONFIG.rules>;
+export type CockpitParams = NumberFields<typeof CONFIG.cockpit>;

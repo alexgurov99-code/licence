@@ -1,10 +1,9 @@
 import * as THREE from 'three';
 import { IndicatorSound } from './audio/indicatorSound';
 import { ChaseCamera } from './camera/chaseCamera';
-import { driverEye, FirstPersonCamera } from './camera/firstPersonCamera';
-import { createGlanceState, stepGlance } from './camera/glance';
+import { FirstPersonCamera } from './camera/firstPersonCamera';
+import { createGlanceState, NO_GLANCE_KEYS, stepGlance, type GlanceTarget } from './camera/glance';
 import { LookCamera } from './camera/lookCamera';
-import { defaultMirrorAims } from './camera/mirrorOptics';
 import { MirrorCameras } from './camera/mirrors';
 import { CONFIG } from './config';
 import { GEAR_ACTIONS, readGlanceKeys, readHeldKeys, takeCommands } from './input/carInput';
@@ -36,7 +35,10 @@ import { clusterReadout, InstrumentCluster } from './ui/instrumentCluster';
 import { eventMessage, MessageBanner, stuckHint } from './ui/messages';
 import { Minimap } from './ui/minimap';
 import { randomSeed } from './util/random';
+import { AdjustPanel, adjustText, describeCockpit } from './ui/adjustPanel';
 import { CabinMesh } from './vehicle/cabinMesh';
+import { adjust, eyeFor, misadjustedCockpit, nextAdjustItem, readiness, type Cockpit } from './vehicle/cockpit';
+import type { AdjustItem } from './vehicle/cockpitTypes';
 import { createCar, stepCar } from './vehicle/car';
 import type { ControlCommand } from './vehicle/carControls';
 import { indicatorLamps, isFlasherLit } from './vehicle/indicators';
@@ -98,19 +100,20 @@ function start(container: HTMLElement): void {
   const vehicleMesh = new VehicleMesh();
   scene.add(vehicleMesh.root);
 
-  // Mirrors are worked out from the driver's eye. For now they start well adjusted; adjusting the
-  // seat and mirrors is part of the cockpit drill (stage 6).
-  const eye = driverEye();
-  const mirrorAims = defaultMirrorAims(eye);
+  // Cockpit drill: the seat and mirrors start out of adjustment (the same way for the same seed).
+  // The seat moves the driver's eye; the mirror pictures are worked out from the eye and the glass angles.
+  let cockpit: Cockpit = misadjustedCockpit(network.seed);
+  let appliedCockpit: Cockpit | null = null;
+  let eye = eyeFor(cockpit.seat);
+  /** What the arrows adjust now (Tab), or null: the arrows look into the mirrors as usual. */
+  let adjusting: AdjustItem | null = null;
   const mirrorCameras = new MirrorCameras(vehicleMesh.root);
-  mirrorCameras.aim(mirrorAims, eye);
   const lookCamera = new LookCamera(vehicleMesh.root);
 
   // The instruments are drawn once and shown twice: on the dashboard and as an on-screen panel.
   const cluster = new InstrumentCluster();
   container.appendChild(cluster.canvas);
   const cabin = new CabinMesh(cluster.canvas, maxAnisotropy, mirrorCameras.textures);
-  cabin.setMirrorAims(mirrorAims);
   vehicleMesh.root.add(cabin.root);
 
   const chaseCamera = new ChaseCamera(
@@ -134,6 +137,7 @@ function start(container: HTMLElement): void {
   const messages = new MessageBanner(container);
   const faultFeed = new FaultFeed(container);
   const coachPanel = new CoachPanel(container);
+  const adjustPanel = new AdjustPanel(container);
   // Learner mode (hints) is on until switched to exam mode; the choice is remembered.
   let learner = readLearnerMode();
   const minimap = new Minimap(container);
@@ -204,6 +208,8 @@ function start(container: HTMLElement): void {
       scene.add(world.root, debugGraph.object, sceneryMesh.root);
       minimap.setNetwork(network, scenery);
       car = parkedAtStart();
+      cockpit = misadjustedCockpit(network.seed);
+      adjusting = null;
       previousMotion = car.motion;
       tracker = createTracker(route, car.motion);
       rules = createRulesState();
@@ -225,6 +231,11 @@ function start(container: HTMLElement): void {
       applyView();
       if (view === 'chase') chaseCamera.snapTo(car.motion);
     }
+    if (keyboard.takePressed('adjust')) {
+      adjusting = nextAdjustItem(adjusting);
+      if (adjusting === 'seat' && view === 'chase') messages.show(`Switch to the driver's seat view (${keyLabel('toggleView')}) to see the seat move`);
+    }
+    if (keyboard.takePressed('adjustDone')) adjusting = null;
     pendingCommands.push(...takeCommands(keyboard));
 
     accumulator += frameSeconds;
@@ -249,7 +260,11 @@ function start(container: HTMLElement): void {
           messages.show('New route: follow the map');
         }
       }
-      const glanceResult = stepGlance(glance, readGlanceKeys(keyboard), simTime, step, CONFIG.glance);
+      // While adjusting, the arrows move the seat or the mirror instead of looking.
+      const arrows = readGlanceKeys(keyboard);
+      const arrowHeld = arrows.up || arrows.down || arrows.left || arrows.right;
+      if (adjusting) cockpit = adjust(cockpit, adjusting, arrows, step);
+      const glanceResult = stepGlance(glance, adjusting ? NO_GLANCE_KEYS : arrows, simTime, step, CONFIG.glance);
       glance = glanceResult.state;
       for (const event of glanceResult.events) {
         const text = describeGlanceEvent(event);
@@ -257,7 +272,10 @@ function start(container: HTMLElement): void {
       }
       // The rules engine judges this step: the car, the glances and where it is on the route and the road.
       const where = locate(network, car.motion, car.motion.heading);
-      const snapshot = rulesSnapshot(simTime, car, glance, tracker, where);
+      const snapshot = rulesSnapshot(simTime, car, glance, tracker, where, {
+        readiness: readiness(cockpit),
+        adjusting: adjusting !== null && arrowHeld,
+      });
       const rulesResult = stepRules(rules, snapshot, routeResult.events);
       const justFinished = rulesResult.state.finished && !rules.finished;
       rules = rulesResult.state;
@@ -285,6 +303,16 @@ function start(container: HTMLElement): void {
     if (cluster.update(clusterReadout(car))) cabin.refreshCluster();
     indicatorSound.update(isFlasherLit(controls.indicators));
 
+    if (cockpit !== appliedCockpit) {
+      eye = eyeFor(cockpit.seat);
+      firstPerson.camera.position.copy(eye);
+      mirrorCameras.aim(cockpit.aims, eye);
+      cabin.setMirrorAims(cockpit.aims);
+      appliedCockpit = cockpit;
+    }
+    const ready = readiness(cockpit);
+    adjustPanel.update(adjusting ? adjustText(adjusting, cockpit, ready) : null);
+
     const hint = stuckHint(car);
     if (hint) messages.show(hint);
     messages.update(frameSeconds);
@@ -294,12 +322,15 @@ function start(container: HTMLElement): void {
     sun.position.set(pose.x + 20, 40, pose.z + 10);
     sun.target.position.set(pose.x, 0, pose.z);
 
-    popups.update(view, glance, frameSeconds);
+    // The mirror being adjusted shows big, its frame green once it is right.
+    const shownGlance = adjusting && adjusting !== 'seat' ? { target: ADJUST_GLANCE[adjusting], counted: ready[adjusting] } : glance;
+    popups.update(view, shownGlance, frameSeconds);
     minimap.update(pose, tracker, currentInstruction(tracker));
     if (lastSnapshot) {
       const coached = coach(lastSnapshot, rules, coachState);
       coachState = coached.state;
-      coachPanel.update(learner ? coached.coaching : null);
+      // While adjusting, the adjust panel lists the parts and the rear-view mirror window needs the top of the screen.
+      coachPanel.update(learner && !adjusting ? coached.coaching : null);
     } else {
       coachPanel.update(null);
     }
@@ -340,12 +371,19 @@ function start(container: HTMLElement): void {
       glance,
       route: tracker,
       rules,
+      cockpit: `${describeCockpit(cockpit, ready)}${adjusting ? ` · adjusting ${adjusting}` : ''}`,
       recentEvents,
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
     });
   });
 }
+
+const ADJUST_GLANCE: Record<Exclude<AdjustItem, 'seat'>, GlanceTarget> = {
+  interior: 'interiorMirror',
+  left: 'leftMirror',
+  right: 'rightMirror',
+};
 
 /** "PASSED (1 critical, 3 minor)": the full results screen comes in stage 7. */
 function resultLine(faults: RulesState['faults']): string {
@@ -385,7 +423,8 @@ function addControlsHint(container: HTMLElement): void {
   hint.textContent = [
     `${k('throttle')} gas · ${k('brake')} brake · ${k('steerLeft')} ${k('steerRight')} steer · ` +
       `${k(GEAR_ACTIONS.P)} ${k(GEAR_ACTIONS.R)} ${k(GEAR_ACTIONS.N)} ${k(GEAR_ACTIONS.D)} gears P R N D`,
-    `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake · ${k('belt')} belt`,
+    `${k('adjust')} adjust seat / mirrors (arrows, ${k('adjustDone')} done) · ${k('belt')} belt · ` +
+      `${k('engine')} engine (in P, hold brake) · ${k('handbrake')} handbrake`,
     `${k('indicatorLeft')} ${k('indicatorRight')} indicators · ${k('hazard')} hazards · ` +
       `${k('toggleView')} view · ${k('toggleMap')} map · ${k('toggleLearner')} learner / exam mode · ` +
       `${k('toggleDebug')} debug (${k('newMap')} new map)`,

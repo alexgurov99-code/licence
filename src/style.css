@@ -282,3 +282,68 @@ body {
   font-weight: 500;
   opacity: 0.85;
 }
+
+/* Cockpit drill: adjusting the seat or a mirror (Tab), bottom centre. */
+.adjust-panel {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  z-index: 19;
+  transform: translateX(-50%);
+  max-width: min(720px, calc(100% - 32px));
+  padding: 8px 12px;
+  color: #fff;
+  text-align: center;
+  background: rgb(0 0 0 / 0.72);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.adjust-panel[hidden] {
+  display: none;
+}
+
+.adjust-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.adjust-hint {
+  margin-top: 4px;
+  font-size: 14px;
+  color: #ffcf4a;
+}
+
+.adjust-hint.ok {
+  color: #6be39a;
+}
+
+.adjust-keys {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.adjust-parts {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.adjust-part {
+  padding: 2px 7px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.65);
+}
+
+.adjust-part.ready {
+  color: #fff;
+  background: rgb(52 168 96 / 0.75);
+}
+
+.adjust-part.current {
+  outline: 2px solid #ffcf4a;
+}

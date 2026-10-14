@@ -13,6 +13,8 @@ import type { RulesSnapshot } from './types';
 // ahead), and a look in the mirror only ticks the mirror step if it comes after the steps show.
 
 export type CoachStepKind =
+  | 'seat'
+  | 'adjustMirrors'
   | 'belt'
   | 'engine'
   | 'mirror'
@@ -158,7 +160,10 @@ export function coach(
   if (m.kind === 'pullOut') {
     const side: Side = 'right';
     const shoulderAt = snap.lastChecked.rightShoulder;
+    const moved = rules.drill.movedOff;
     drafts.push(
+      { kind: 'seat', done: snap.cockpit.seat || moved },
+      { kind: 'adjustMirrors', done: (snap.cockpit.interior && snap.cockpit.left && snap.cockpit.right) || moved },
       { kind: 'belt', done: snap.beltFastened },
       { kind: 'engine', done: snap.engineOn },
       mirrorStep(side),

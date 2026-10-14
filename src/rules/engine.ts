@@ -1,6 +1,7 @@
 import { CONFIG, type RulesParams } from '../config';
 import type { Route } from '../route/route';
 import type { RouteEvent } from '../route/tracker';
+import { createDrillState, stepDrill, stepPark, type DrillState } from './drill';
 import { createJunctionState, stepJunctions, type JunctionState } from './junctions';
 import { createPositionState, stepPosition, type PositionState } from './position';
 import { createSignalState, signalStateForNewRoute, stepSignals, type SignalState } from './signals';
@@ -23,7 +24,8 @@ export interface RulesState {
   junctions: JunctionState;
   speed: SpeedState;
   position: PositionState;
-  /** The car has arrived: the drive is over and nothing more is judged. */
+  drill: DrillState;
+  /** The car has arrived and been secured (or the time for that ran out): the drive is over and nothing more is judged. */
   finished: boolean;
 }
 
@@ -54,6 +56,7 @@ export function createRulesState(): RulesState {
     junctions: createJunctionState(),
     speed: createSpeedState(),
     position: createPositionState(),
+    drill: createDrillState(),
     finished: false,
   };
 }
@@ -67,6 +70,12 @@ export function stepRules(
 ): { state: RulesState; faults: Fault[] } {
   if (state.finished) return { state, faults: [] };
   const { params } = options;
+  // Arrived (the step of arriving is judged in full): only securing the car (handbrake, P) is judged now.
+  if (snap.arrived && state.drill.arrivedAt !== null) {
+    const park = stepPark(state.drill, snap, snap.route.maneuvers[snap.route.maneuvers.length - 1], params.drill);
+    const added = addFaults(state, park.faults, snap);
+    return { state: { ...state, ...added.fields, drill: park.state, finished: park.done }, faults: added.faults };
+  }
   const newRoute = state.route !== snap.route;
 
   const signals = stepSignals(
@@ -85,7 +94,32 @@ export function stepRules(
     options,
   );
 
-  const drafts: FaultDraft[] = [...signals.faults, ...junctions.faults, ...speed.faults, ...position.faults];
+  const drill = stepDrill(state.drill, snap, params.drill);
+
+  const drafts: FaultDraft[] = [...drill.faults, ...signals.faults, ...junctions.faults, ...speed.faults, ...position.faults];
+  const added = addFaults(state, drafts, snap);
+
+  return {
+    state: {
+      route: snap.route,
+      ...added.fields,
+      signals: signals.state,
+      junctions: junctions.state,
+      speed: speed.state,
+      position: position.state,
+      drill: snap.arrived ? { ...drill.state, arrivedAt: snap.time } : drill.state,
+      finished: false,
+    },
+    faults: added.faults,
+  };
+}
+
+/** Numbers the new faults and adds them; a worse fault of the same episode replaces the earlier one. */
+function addFaults(
+  state: RulesState,
+  drafts: readonly FaultDraft[],
+  snap: RulesSnapshot,
+): { fields: Pick<RulesState, 'faults' | 'nextId' | 'episodes'>; faults: Fault[] } {
   let faults = state.faults;
   let nextId = state.nextId;
   let episodes = state.episodes;
@@ -101,19 +135,5 @@ export function stepRules(
     faults = [...faults, fault];
     added.push(fault);
   }
-
-  return {
-    state: {
-      route: snap.route,
-      faults,
-      nextId,
-      episodes,
-      signals: signals.state,
-      junctions: junctions.state,
-      speed: speed.state,
-      position: position.state,
-      finished: snap.arrived,
-    },
-    faults: added,
-  };
+  return { fields: { faults, nextId, episodes }, faults: added };
 }

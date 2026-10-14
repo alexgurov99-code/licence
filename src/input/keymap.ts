@@ -19,6 +19,9 @@ export const KEYMAP = {
   gearD: ['Digit4', 'Numpad4'],
   engine: ['Enter', 'NumpadEnter'],
   belt: ['KeyB'],
+  /** Cockpit drill: adjust the seat, then each mirror in turn (the arrows adjust instead of looking). */
+  adjust: ['Tab'],
+  adjustDone: ['Escape'],
   lookUp: ['ArrowUp'],
   lookDown: ['ArrowDown'],
   lookLeft: ['ArrowLeft'],
@@ -39,6 +42,8 @@ const SPECIAL_LABELS: Record<string, string> = {
   Backquote: '`',
   Space: 'Space',
   Enter: 'Enter',
+  Tab: 'Tab',
+  Escape: 'Esc',
   ArrowUp: '↑',
   ArrowDown: '↓',
   ArrowLeft: '←',
