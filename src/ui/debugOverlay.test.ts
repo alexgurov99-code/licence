@@ -15,8 +15,11 @@ import {
   formatLocation,
   formatRoute,
   formatRules,
+  formatTraffic,
   maneuverName,
 } from './debugOverlay';
+import { addCar, createTraffic, createTrafficWorld, LEARNER } from '../traffic/traffic';
+import { NO_TRAFFIC } from '../traffic/types';
 
 describe('glance lines in the debug panel', () => {
   it('shows the current glance and how long ago each check was done', () => {
@@ -130,6 +133,29 @@ describe('rules lines in the debug panel', () => {
     expect(lines.slice(2)).toEqual([
       '  12.3s CRITICAL #3: No left indicator for the left turn.',
       '  12.3s minor #3: No left indicator for the left turn.',
+    ]);
+  });
+});
+
+describe('traffic lines in the debug panel', () => {
+  it('shows the cars, who gives way to whom and the cars whose way meets the learner\'s', () => {
+    const network = buildNetwork('debug-traffic');
+    const world = createTrafficWorld(network);
+    let state = createTraffic(world, 'debug-traffic', network.start, 0);
+    state = addCar(world, state, { laneId: 0, s: 20, next: world.exits[0]?.[0]?.id ?? 0 });
+    const car = state.cars[0];
+    if (!car) throw new Error('No car');
+    state = { ...state, cars: [{ ...car, givingWayTo: [LEARNER] }] };
+    const lines = formatTraffic(state, {
+      ...NO_TRAFFIC,
+      ahead: { carId: 0, gap: 23.4, speed: 10 },
+      evasive: [0],
+      conflicts: [{ carId: 0, learnerGivesWay: true, learnerTo: 5, learnerClear: false, carTo: 31, carClear: false, carSpeed: 9, from: 'right' }],
+    });
+    expect(lines).toEqual([
+      'traffic  1 cars · #0 23 m ahead · BRAKING FOR YOU: #0',
+      '         giving way: #0→you',
+      '         #0 right you give way (car 31 m, you 5 m)',
     ]);
   });
 });

@@ -3,6 +3,7 @@ import type { Maneuver, Route, Side } from '../route/route';
 import type { RulesState } from './engine';
 import { mirrorChecked } from './observation';
 import { exitZoneOf } from './signals';
+import type { Direction } from '../traffic/types';
 import type { RulesSnapshot } from './types';
 
 // Learner mode: the steps the next manoeuvre needs, in order, and which are done, following the
@@ -42,7 +43,13 @@ export interface CoachStep {
   needSeconds?: number;
 }
 
-export type CoachWarning = { kind: 'speeding'; limit: number } | { kind: 'keepLeft' };
+export type CoachWarning =
+  | { kind: 'speeding'; limit: number }
+  | { kind: 'keepLeft' }
+  /** A car the learner must give way to is close to where their ways meet. */
+  | { kind: 'giveWay'; from: Direction }
+  /** Closer than 2 seconds behind the car ahead. */
+  | { kind: 'tooClose' };
 
 /**
  * steps: time to do the steps; ahead: the manoeuvre is still a way off (no steps yet);
@@ -219,6 +226,19 @@ export function coach(
   const limit = rules.speed.limit;
   if (limit !== null && Math.abs(snap.speed) * 3.6 > limit + 1) warnings.push({ kind: 'speeding', limit });
   if (snap.road && !snap.arrived && snap.road.laneOffset < -params.position.keepLeftOffset) warnings.push({ kind: 'keepLeft' });
+  const tp = params.traffic;
+  const giveWayTo = snap.traffic.conflicts.find(
+    (c) =>
+      c.learnerGivesWay &&
+      !c.carClear &&
+      !c.learnerClear &&
+      c.learnerTo < tp.hintDistance &&
+      (c.carTo <= 0 || (c.carSpeed > 0.3 && c.carTo / c.carSpeed < tp.hintSeconds)),
+  );
+  if (giveWayTo) warnings.push({ kind: 'giveWay', from: giveWayTo.from });
+  const speed = Math.abs(snap.speed);
+  const ahead = snap.traffic.ahead;
+  if (ahead && speed * 3.6 > tp.followMinKmh && ahead.gap / speed < tp.followMinorSeconds) warnings.push({ kind: 'tooClose' });
 
   const target = m.kind === 'pullOver' ? m.end : m.start;
   const distance = snap.nextStarted || snap.arrived || m.kind === 'pullOut' ? null : Math.max(0, target - snap.progress);

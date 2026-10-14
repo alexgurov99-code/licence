@@ -31,7 +31,7 @@ describe('learner mode panel text', () => {
         { kind: 'go', state: 'todo' },
         { kind: 'cancelSignal', state: 'todo' },
       ],
-      warnings: [{ kind: 'speeding', limit: 50 }],
+      warnings: [{ kind: 'speeding', limit: 50 }, { kind: 'giveWay', from: 'right' }, { kind: 'tooClose' }],
     });
     expect(text.title).toBe('Turn right (Give Way) · 230 m');
     expect(text.steps).toEqual([
@@ -41,7 +41,11 @@ describe('learner mode panel text', () => {
       { text: 'Turn right', state: 'todo' },
       { text: 'Indicator off: Q / E again', state: 'todo' },
     ]);
-    expect(text.warnings).toEqual(['Slow down: the limit is 50 km/h']);
+    expect(text.warnings).toEqual([
+      'Slow down: the limit is 50 km/h',
+      'Give way to the car on your right',
+      'Too close: keep 2 seconds behind the car ahead',
+    ]);
   });
 
   it('pulling out lists the keys for the whole sequence', () => {

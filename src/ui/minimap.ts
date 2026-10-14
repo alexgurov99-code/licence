@@ -4,10 +4,16 @@ import type { Route } from '../route/route';
 import type { RouteTracker } from '../route/tracker';
 import type { RoadNetwork } from '../world/network';
 import type { Scenery } from '../world/scenery';
-import { add, forward, samplePath, type PathPoint, type Pose } from '../world/path';
+import { add, forward, leftOf, samplePath, type PathPoint, type Pose, type Vec2 } from '../world/path';
 import { COLOURS, drawCar, drawFlag, drawTown, mapMatrix, polyline, toScreen, townMap, type MapView, type TownMap } from './mapDrawing';
 
 export { mapMatrix, toScreen, type MapView } from './mapDrawing';
+
+/** Another car on the roads, for the map. */
+export interface OtherCar extends Pose {
+  length: number;
+  width: number;
+}
 
 // The satnav in the corner: the town from above with the route, the car and the next manoeuvre
 // ("In 120 m turn left"). The small map turns with the car, so "left" on the map is always the
@@ -66,7 +72,8 @@ export class Minimap {
     this.routePoints = samplePath(route.path, 0, route.path.length, 2);
   }
 
-  update(car: Pose, tracker: RouteTracker, instruction: Instruction): void {
+  /** `others`: the other cars on the roads, drawn to scale. */
+  update(car: Pose, tracker: RouteTracker, instruction: Instruction, others: readonly OtherCar[] = []): void {
     this.updateHint(instruction);
     const screen = Math.min(window.innerWidth, window.innerHeight);
     const size = Math.round(this.large ? this.params.largeShare * screen : this.params.size);
@@ -93,6 +100,7 @@ export class Minimap {
     ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, e * dpr, f * dpr);
     this.drawRoads(ctx);
     this.drawRoute(ctx, tracker, 1 / view.scale);
+    drawOtherCars(ctx, others);
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawMarks(ctx, view, tracker);
@@ -182,6 +190,22 @@ export class Minimap {
 
 
 
+
+/** Other cars as dark rectangles in town coordinates (the map's transform must be set). */
+function drawOtherCars(ctx: CanvasRenderingContext2D, cars: readonly OtherCar[]): void {
+  ctx.fillStyle = COLOURS.otherCar;
+  for (const car of cars) {
+    const f = forward(car.heading);
+    const l = leftOf(car.heading);
+    const corner = (along: number, side: number): Vec2 => add(add(car, f, along), l, side);
+    const hl = car.length / 2;
+    const hw = car.width / 2;
+    ctx.beginPath();
+    polyline(ctx, [corner(hl, hw), corner(hl, -hw), corner(-hl, -hw), corner(-hl, hw)]);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
 
 /** The picture next to the satnav text: an arrow, a roundabout with its exit, the kerb, or a flag. */
 export function drawInstructionIcon(ctx: CanvasRenderingContext2D, instruction: Instruction, px: number): void {

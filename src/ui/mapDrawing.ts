@@ -49,6 +49,7 @@ export const COLOURS = {
   next: '#ffffff',
   number: '#3d9bff',
   flag: '#ffffff',
+  otherCar: '#2a2f35',
 };
 
 /** The roads and the blocks of houses, ready to draw. */

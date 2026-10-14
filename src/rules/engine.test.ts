@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NO_TRAFFIC } from '../traffic/types';
 import { COCKPIT_READY } from '../vehicle/cockpitTypes';
 import type { Maneuver, Route, Side, Zone } from '../route/route';
 import { stepRules } from './engine';
@@ -328,6 +329,7 @@ describe('results', () => {
       arrived: false,
       road: null,
       inJunction: false,
+      traffic: NO_TRAFFIC,
     };
     const next = stepRules({ ...rules, finished: false }, snap, []).state;
     expect(next.faults.length).toBe(before);
